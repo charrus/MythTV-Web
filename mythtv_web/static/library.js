@@ -1,6 +1,7 @@
 let programGroups = [];
 let currentPrograms = [];
 let selectedGroupTitle = null;
+let selectedGroupArtwork = null;
 let totalRecordings = 0;
 let activeFilter = "all";
 let loading = false;
@@ -60,14 +61,19 @@ function makePoster(sourceUrl, badgeText = "") {
   poster.append(fallback);
 
   if (sourceUrl) {
-    const image = document.createElement("img");
-    image.src = sourceUrl.startsWith("/")
-      ? `/api/artwork?url=${encodeURIComponent(sourceUrl)}`
-      : sourceUrl;
-    image.alt = "";
-    image.loading = "lazy";
-    image.addEventListener("load", () => fallback.remove(), { once: true });
-    poster.prepend(image);
+    const imageSource = sourceUrl.startsWith("/api/artwork?")
+      ? sourceUrl
+      : sourceUrl.startsWith("/Content/GetImageFile?")
+        ? `/api/artwork?url=${encodeURIComponent(sourceUrl)}`
+        : "";
+    if (imageSource) {
+      const image = document.createElement("img");
+      image.src = imageSource;
+      image.alt = "";
+      image.loading = "lazy";
+      image.addEventListener("load", () => fallback.remove(), { once: true });
+      poster.prepend(image);
+    }
   }
 
   if (badgeText) {
@@ -126,7 +132,7 @@ function makeGroupCard(group, index) {
   meta.append(latest);
   info.append(channel, title, subtitle, meta);
   openButton.append(info);
-  openButton.addEventListener("click", () => loadGroup(group.title));
+  openButton.addEventListener("click", () => loadGroup(group));
   card.append(openButton);
   return card;
 }
@@ -136,7 +142,7 @@ function makeProgramCard(program, index) {
   card.className = "program-card";
   card.style.animationDelay = `${Math.min(index % 8, 8) * 22}ms`;
   const poster = makePoster(
-    artworkUrl(program),
+    artworkUrl(program) || selectedGroupArtwork,
     isWatched(program) ? "Watched" : "",
   );
 
@@ -268,18 +274,19 @@ async function loadGroups() {
   }
 }
 
-async function loadGroup(title) {
+async function loadGroup(group) {
   if (loading) return;
   loading = true;
   grid.setAttribute("aria-busy", "true");
   syncNote.textContent = "Loading recordings…";
   try {
     const response = await fetch(
-      `/api/program-group?title=${encodeURIComponent(title)}`,
+      `/api/program-group?title=${encodeURIComponent(group.title)}`,
     );
     if (!response.ok) throw new Error(`Request failed (${response.status})`);
     const result = await response.json();
     selectedGroupTitle = result.title;
+    selectedGroupArtwork = group.artwork_url;
     currentPrograms = result.programs;
     searchInput.value = "";
     syncNote.textContent = "Complete group";
@@ -295,6 +302,7 @@ async function loadGroup(title) {
 
 function returnToGroups() {
   selectedGroupTitle = null;
+  selectedGroupArtwork = null;
   currentPrograms = [];
   searchInput.value = "";
   renderGroups();
