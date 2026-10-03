@@ -596,11 +596,6 @@ h1 {
   font-size: 11px;
 }
 
-.browser-wasm-test {
-  margin: 0 0 10px;
-  border-color: var(--leaf);
-}
-
 .player-seek-row {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) 42px;
@@ -730,11 +725,6 @@ h1 {
 
   .player-toolbar {
     gap: 7px;
-  }
-
-  .browser-wasm-test {
-    width: 100%;
-    min-height: 44px;
   }
 
   .player-select-label {

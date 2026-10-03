@@ -14,8 +14,8 @@ def test_home_renders_recordings_library():
     assert response.status_code == 200
     assert b"Recordings" in response.data
     assert b"/static/build/library.js" in response.data
-    assert b'id="browser-wasm-test"' in response.data
-    assert b'id="browser-wasm-stream"' in response.data
+    assert b"browser-wasm-test" not in response.data
+    assert b"browser-wasm-stream" not in response.data
     assert response.headers["Cross-Origin-Opener-Policy"] == "same-origin"
     assert response.headers["Cross-Origin-Embedder-Policy"] == "require-corp"
 
@@ -32,7 +32,6 @@ def test_home_uses_forwarded_prefix_for_assets_and_navigation():
     assert b'href="/mythtv-web/static/library.css"' in response.data
     assert b'href="/mythtv-web/"' in response.data
     assert b'src="/mythtv-web/static/build/library.js"' in response.data
-    assert b'id="browser-wasm-stream"' in response.data
 
 
 def test_program_list_is_proxied_with_pagination(monkeypatch):
@@ -304,7 +303,9 @@ def test_playback_info_returns_mythtv_markers_and_resume_positions(
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args[0],
             0,
-            '{"streams": [{"index": 3, "codec_type": "subtitle", '
+            '{"streams": [{"index": 0, "codec_type": "video", '
+            '"codec_name": "h264", "profile": "High", "level": 40, '
+            '"pix_fmt": "yuv420p"}, {"index": 3, "codec_type": "subtitle", '
             '"codec_name": "subrip", "tags": {"language": "eng"}}]}',
             "",
         ),
@@ -345,6 +346,9 @@ def test_playback_info_returns_mythtv_markers_and_resume_positions(
     assert response.json["cut_list"] == []
     assert response.json["last_position"] == 45000
     assert response.json["bookmark"] == 60000
+    assert response.json["media"]["video_profile"] == "High"
+    assert response.json["media"]["video_level"] == 40
+    assert response.json["media"]["video_pixel_format"] == "yuv420p"
     assert response.json["media"]["subtitles"] == [
         {"index": 3, "codec": "subrip", "language": "eng", "title": ""}
     ]

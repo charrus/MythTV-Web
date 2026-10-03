@@ -16,8 +16,6 @@ const backButton = document.querySelector("#back-to-groups");
 const playerDialog = document.querySelector("#player-dialog");
 const playerVideo = document.querySelector("#recording-video");
 const playerStatus = document.querySelector("#player-status");
-const browserWasmTestButton = document.querySelector("#browser-wasm-test");
-const browserWasmStreamButton = document.querySelector("#browser-wasm-stream");
 const playbackSeek = document.querySelector("#playback-seek");
 const smartSkip = document.querySelector("#smart-skip");
 const skipAdButton = document.querySelector("#skip-ad");
@@ -25,19 +23,14 @@ let activeRecording = null;
 let playbackInfo = null;
 let commercialBreaks = [];
 let usingTranscode = false;
+let usingWasm = false;
 let transcodeBase = 0;
 let transcodeToken = null;
-let browserSampleActive = false;
-let browserSampleUrl = null;
-let browserSampleSubtitleUrl = null;
+let wasmPlayback = null;
 let subtitleElement = null;
 let lastSavedPosition = -1;
 let smartSkipBusy = false;
-
-function setBrowserWasmTestVisible(visible) {
-  if (browserWasmTestButton) browserWasmTestButton.hidden = !visible;
-  if (browserWasmStreamButton) browserWasmStreamButton.hidden = !visible;
-}
+const BROWSER_CONVERSION_ENABLED = false;
 
 function appPath(path) {
   return `${appRoot}${path}`;
@@ -81,7 +74,6 @@ function formatPlaybackTime(seconds) {
 }
 
 function playbackDuration(program) {
-  if (browserSampleActive) return playerVideo.duration || 15;
   const start = Date.parse(program.StartTime || "");
   const end = Date.parse(program.EndTime || "");
   return Number.isFinite(start) && Number.isFinite(end) && end > start
@@ -90,13 +82,22 @@ function playbackDuration(program) {
 }
 
 function playbackPosition() {
-  return usingTranscode ? transcodeBase + playerVideo.currentTime : playerVideo.currentTime;
+  return usingTranscode || usingWasm
+    ? transcodeBase + playerVideo.currentTime
+    : playerVideo.currentTime;
 }
 
 function seekTo(seconds) {
   const duration = playbackDuration(activeRecording || {});
   const position = Math.max(0, Math.min(seconds, duration || Number.MAX_SAFE_INTEGER));
-  if (usingTranscode) {
+  if (usingWasm) {
+    const buffered = Array.from({ length: playerVideo.buffered.length }, (_, index) => ({
+      start: playerVideo.buffered.start(index),
+      end: playerVideo.buffered.end(index),
+    })).some((range) => position >= range.start && position <= range.end);
+    if (buffered) playerVideo.currentTime = position - transcodeBase;
+    else startTranscode(position);
+  } else if (usingTranscode) {
     startTranscode(position);
   } else {
     playerVideo.currentTime = position;
@@ -123,7 +124,7 @@ function updatePlaybackProgress() {
 }
 
 async function savePlaybackPosition() {
-  if (!activeRecording || browserSampleActive) return;
+  if (!activeRecording) return;
   const position = playbackPosition();
   if (!Number.isFinite(position) || position < 0) return;
   lastSavedPosition = position;
@@ -162,8 +163,17 @@ async function cancelTranscode() {
   }
 }
 
+function stopWasmPlayback() {
+  const playback = wasmPlayback;
+  wasmPlayback = null;
+  usingWasm = false;
+  if (playback) playback.cancel();
+}
+
 function startTranscode(seconds = 0) {
+  stopWasmPlayback();
   cancelTranscode();
+  usingWasm = false;
   usingTranscode = true;
   transcodeBase = seconds;
   const playbackRate = Number(document.querySelector("#playback-speed").value) || 1;
@@ -183,12 +193,12 @@ function startTranscode(seconds = 0) {
 
 function handleVideoError() {
   if (!activeRecording) return;
-  if (browserSampleActive) {
-    playerStatus.textContent = "The browser could not play the converted test sample.";
-    return;
-  }
   if (!usingTranscode) {
-    startTranscode(playbackPosition());
+    if (BROWSER_CONVERSION_ENABLED && !usingWasm) {
+      startWasmTranscode(playbackPosition());
+    } else {
+      startTranscode(playbackPosition());
+    }
   } else {
     playerStatus.textContent = "The server could not transcode this recording.";
   }
@@ -202,10 +212,6 @@ async function selectSubtitle(streamIndex) {
     (track) => String(track.index) === streamIndex,
   );
   if (!trackInfo) return;
-  if (browserSampleActive && !browserSampleSubtitleUrl) {
-    playerStatus.textContent = "No browser-converted subtitle cues are available in this sample.";
-    return;
-  }
   const track = document.createElement("track");
   track.kind = "subtitles";
   track.label = trackInfo.title || (
@@ -214,9 +220,7 @@ async function selectSubtitle(streamIndex) {
       : `Track ${streamIndex}`
   );
   track.srclang = /^[a-z]{2,3}$/i.test(trackInfo.language) ? trackInfo.language : "und";
-  track.src = browserSampleActive && browserSampleSubtitleUrl
-    ? browserSampleSubtitleUrl
-    : appPath(`/api/playback/${activeRecording.Recording.RecordedId}/subtitles/${streamIndex}`);
+  track.src = appPath(`/api/playback/${activeRecording.Recording.RecordedId}/subtitles/${streamIndex}`);
   track.addEventListener("load", () => {
     track.track.mode = "showing";
     playerStatus.textContent = `Subtitles: ${track.label}`;
@@ -231,81 +235,49 @@ async function selectSubtitle(streamIndex) {
   track.track.mode = "showing";
 }
 
-async function testBrowserSampleConversion() {
-  if (!browserWasmTestButton || !activeRecording || !playbackInfo || browserWasmTestButton.disabled) return;
-  browserWasmTestButton.disabled = true;
-  if (browserWasmStreamButton) browserWasmStreamButton.disabled = true;
-  playerVideo.pause();
-  playerStatus.textContent = "Preparing a bounded browser conversion…";
-  await cancelTranscode();
+async function startWasmTranscode(seconds = 0) {
+  stopWasmPlayback();
+  cancelTranscode();
+  usingTranscode = false;
+  usingWasm = true;
+  transcodeBase = seconds;
+  const recording = activeRecording;
+  playerStatus.textContent = "Preparing browser-side conversion…";
   try {
-    const { convertSample } = await import("./browser_transcoder.js");
-    const duration = playbackDuration(activeRecording);
-    const sample = await convertSample({
-      sourceURL: appPath(`/api/playback/${activeRecording.Recording.RecordedId}/stream`),
-      sourceSize: Number(activeRecording.FileSize) || 0,
-      duration,
+    const { startWasmPlayback } = await import("./browser_playback.js");
+    if (recording !== activeRecording) return;
+    const session = await startWasmPlayback({
+      sourceURL: appPath(`/api/playback/${recording.Recording.RecordedId}/stream`),
       coreURL: appPath("/static/vendor/ffmpeg-core.js"),
       wasmURL: appPath("/static/vendor/ffmpeg-core.wasm"),
       workerURL: appPath("/static/vendor/worker.js"),
-      subtitleIndex: playbackInfo.media.subtitles[0]?.index,
+      video: playerVideo,
+      startSeconds: seconds,
+      sourceVideoCodec: playbackInfo.media.video_codec,
+      sourceVideoProfile: playbackInfo.media.video_profile,
+      sourceVideoLevel: playbackInfo.media.video_level,
+      sourceVideoPixelFormat: playbackInfo.media.video_pixel_format,
       onStatus: (status) => { playerStatus.textContent = status; },
     });
-    usingTranscode = false;
-    transcodeBase = 0;
-    browserSampleActive = true;
-    if (browserSampleUrl) URL.revokeObjectURL(browserSampleUrl);
-    browserSampleUrl = URL.createObjectURL(sample.video);
-    if (browserSampleSubtitleUrl) URL.revokeObjectURL(browserSampleSubtitleUrl);
-    browserSampleSubtitleUrl = sample.subtitles
-      ? URL.createObjectURL(sample.subtitles)
-      : null;
-    playerVideo.src = browserSampleUrl;
-    playerVideo.load();
+    if (recording !== activeRecording) {
+      session.cancel();
+      return;
+    }
+    wasmPlayback = session;
+    session.done.catch((error) => {
+      if (wasmPlayback !== session || recording !== activeRecording) return;
+      const position = playbackPosition();
+      playerStatus.textContent = `Browser conversion unavailable; switching to server fallback: ${error.message}`;
+      startTranscode(position);
+    });
     playerVideo.play().catch(() => {
-      playerStatus.textContent = "Browser-converted sample ready. Press Play to view.";
+      playerStatus.textContent = "Browser conversion ready. Press Play to begin.";
     });
   } catch (error) {
-    playerStatus.textContent = `Browser conversion failed: ${error.message}`;
-  } finally {
-    browserWasmTestButton.disabled = false;
-    if (browserWasmStreamButton) browserWasmStreamButton.disabled = false;
-  }
-}
-
-async function testBrowserStreamInput() {
-  if (!browserWasmStreamButton || !activeRecording || !playbackInfo || browserWasmStreamButton.disabled) return;
-  browserWasmStreamButton.disabled = true;
-  if (browserWasmTestButton) browserWasmTestButton.disabled = true;
-  playerVideo.pause();
-  playerStatus.textContent = "Preparing direct-stream browser conversion…";
-  await cancelTranscode();
-  try {
-    const { convertPipeSample } = await import("./browser_transcoder.js");
-    const sample = await convertPipeSample({
-      sourceURL: appPath(`/api/playback/${activeRecording.Recording.RecordedId}/stream`),
-      coreURL: appPath("/static/vendor/ffmpeg-core.js"),
-      wasmURL: appPath("/static/vendor/ffmpeg-core.wasm"),
-      workerURL: appPath("/static/vendor/worker.js"),
-      onStatus: (status) => { playerStatus.textContent = status; },
-    });
-    usingTranscode = false;
-    transcodeBase = 0;
-    browserSampleActive = true;
-    if (browserSampleUrl) URL.revokeObjectURL(browserSampleUrl);
-    browserSampleUrl = URL.createObjectURL(sample.video);
-    if (browserSampleSubtitleUrl) URL.revokeObjectURL(browserSampleSubtitleUrl);
-    browserSampleSubtitleUrl = null;
-    playerVideo.src = browserSampleUrl;
-    playerVideo.load();
-    playerVideo.play().catch(() => {
-      playerStatus.textContent = "Browser-converted sample ready. Press Play to view.";
-    });
-  } catch (error) {
-    playerStatus.textContent = `WASM pipe test failed: ${error.message}`;
-  } finally {
-    browserWasmStreamButton.disabled = false;
-    if (browserWasmTestButton) browserWasmTestButton.disabled = false;
+    if (recording === activeRecording) {
+      playerStatus.textContent = `Browser conversion unavailable; using server fallback: ${error.message}`;
+      startTranscode(seconds);
+    }
   }
 }
 
@@ -316,13 +288,9 @@ async function openPlayer(program) {
   playbackInfo = null;
   commercialBreaks = [];
   usingTranscode = false;
+  usingWasm = false;
   transcodeBase = 0;
-  browserSampleActive = false;
-  if (browserSampleUrl) URL.revokeObjectURL(browserSampleUrl);
-  browserSampleUrl = null;
-  if (browserSampleSubtitleUrl) URL.revokeObjectURL(browserSampleSubtitleUrl);
-  browserSampleSubtitleUrl = null;
-  setBrowserWasmTestVisible(false);
+  stopWasmPlayback();
   lastSavedPosition = -1;
   document.querySelector("#player-title").textContent = program.SubTitle || program.Title;
   document.querySelector("#player-subtitle").textContent = [
@@ -361,12 +329,12 @@ async function openPlayer(program) {
     });
     const resumeMilliseconds = playbackInfo.last_position || playbackInfo.bookmark || 0;
     const resumePosition = Math.max(0, resumeMilliseconds / 1000);
-    setBrowserWasmTestVisible(true);
     const knownUnsupported = ["hevc", "eac3", "mpeg2video", "mpeg1video", "mp2", "ac3"].some((codec) =>
       [playbackInfo.media.video_codec, playbackInfo.media.audio_codec].includes(codec),
     );
     if (knownUnsupported) {
-      startTranscode(resumePosition);
+      if (BROWSER_CONVERSION_ENABLED) startWasmTranscode(resumePosition);
+      else startTranscode(resumePosition);
     } else {
       playerVideo.src = appPath(`/api/playback/${recordedId}/stream`);
       playerVideo.load();
@@ -392,20 +360,17 @@ function closePlayer() {
   if (!activeRecording) return;
   savePlaybackPosition();
   cancelTranscode();
+  stopWasmPlayback();
   playerVideo.pause();
   playerVideo.removeAttribute("src");
   playerVideo.load();
-  browserSampleActive = false;
-  if (browserSampleUrl) URL.revokeObjectURL(browserSampleUrl);
-  browserSampleUrl = null;
-  if (browserSampleSubtitleUrl) URL.revokeObjectURL(browserSampleSubtitleUrl);
-  browserSampleSubtitleUrl = null;
   subtitleElement?.remove();
   subtitleElement = null;
   activeRecording = null;
   playbackInfo = null;
   commercialBreaks = [];
   usingTranscode = false;
+  usingWasm = false;
   transcodeBase = 0;
   if (playerDialog.open) playerDialog.close();
 }
@@ -732,8 +697,6 @@ document.querySelectorAll(".filter-button").forEach((button) => {
 });
 backButton.addEventListener("click", returnToGroups);
 document.querySelector("#player-close").addEventListener("click", closePlayer);
-browserWasmTestButton?.addEventListener("click", testBrowserSampleConversion);
-browserWasmStreamButton?.addEventListener("click", testBrowserStreamInput);
 playerDialog.addEventListener("cancel", (event) => {
   event.preventDefault();
   closePlayer();
@@ -756,8 +719,8 @@ playerVideo.addEventListener("pause", () => {
   document.querySelector("#player-toggle").setAttribute("aria-label", "Play");
 });
 playerVideo.addEventListener("playing", () => {
-  playerStatus.textContent = browserSampleActive
-    ? "Playing bounded browser conversion"
+  playerStatus.textContent = usingWasm
+    ? "Playing browser-side conversion"
     : usingTranscode
       ? "Playing live server conversion"
       : "Playing MythTV recording";

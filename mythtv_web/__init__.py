@@ -64,7 +64,14 @@ def _recording_url(app: Flask, recorded_id: int) -> str:
 def _probe_recording(app: Flask, recorded_id: int) -> dict:
     ffprobe = shutil.which("ffprobe")
     if not ffprobe:
-        return {"video_codec": None, "audio_codec": None, "subtitles": []}
+        return {
+            "video_codec": None,
+            "video_profile": None,
+            "video_level": None,
+            "video_pixel_format": None,
+            "audio_codec": None,
+            "subtitles": [],
+        }
     try:
         result = subprocess.run(
             [
@@ -72,7 +79,7 @@ def _probe_recording(app: Flask, recorded_id: int) -> dict:
                 "-v",
                 "error",
                 "-show_entries",
-                "stream=index,codec_type,codec_name:stream_tags=language,title",
+                "stream=index,codec_type,codec_name,profile,level,pix_fmt:stream_tags=language,title",
                 "-of",
                 "json",
                 _recording_url(app, recorded_id),
@@ -85,14 +92,30 @@ def _probe_recording(app: Flask, recorded_id: int) -> dict:
         streams = json.loads(result.stdout).get("streams", [])
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         app.logger.info("Recording stream probe failed: %s", error)
-        return {"video_codec": None, "audio_codec": None, "subtitles": []}
+        return {
+            "video_codec": None,
+            "video_profile": None,
+            "video_level": None,
+            "video_pixel_format": None,
+            "audio_codec": None,
+            "subtitles": [],
+        }
 
     subtitles = []
-    codecs = {"video_codec": None, "audio_codec": None}
+    codecs = {
+        "video_codec": None,
+        "video_profile": None,
+        "video_level": None,
+        "video_pixel_format": None,
+        "audio_codec": None,
+    }
     for stream in streams:
         codec_type = stream.get("codec_type")
-        if codec_type == "video":
+        if codec_type == "video" and codecs["video_codec"] is None:
             codecs["video_codec"] = stream.get("codec_name")
+            codecs["video_profile"] = stream.get("profile")
+            codecs["video_level"] = stream.get("level")
+            codecs["video_pixel_format"] = stream.get("pix_fmt")
         elif codec_type == "audio" and codecs["audio_codec"] is None:
             codecs["audio_codec"] = stream.get("codec_name")
         elif codec_type == "subtitle":

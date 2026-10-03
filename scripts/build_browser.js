@@ -5,6 +5,7 @@ const { build } = require("esbuild");
 const root = path.resolve(__dirname, "..");
 const staticRoot = path.join(root, "mythtv_web", "static");
 const vendorRoot = path.join(staticRoot, "vendor");
+const buildRoot = path.join(staticRoot, "build");
 const ffmpegRoot = path.join(
   root,
   "node_modules",
@@ -23,6 +24,7 @@ const coreRoot = path.join(
 );
 
 async function main() {
+  fs.rmSync(buildRoot, { recursive: true, force: true });
   fs.mkdirSync(vendorRoot, { recursive: true });
   for (const [sourceRoot, files] of [
     [ffmpegRoot, ["worker.js", "const.js", "errors.js"]],
@@ -45,7 +47,7 @@ async function main() {
     bundle: true,
     format: "esm",
     splitting: true,
-    outdir: path.join(staticRoot, "build"),
+    outdir: buildRoot,
     entryNames: "library",
     chunkNames: "chunks/[name]-[hash]",
     platform: "browser",
