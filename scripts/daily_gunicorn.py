@@ -9,10 +9,9 @@ import subprocess
 import sys
 import time
 import traceback
-from datetime import datetime, time as day_start, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
-
 
 LOG_PATTERN = re.compile(r"gunicorn-\d{4}-\d{2}-\d{2}T000000\.log")
 
@@ -23,7 +22,9 @@ def seconds_until_next_midnight(now: datetime | None = None) -> float:
     next_midnight = time.mktime(
         (next_day.year, next_day.month, next_day.day, 0, 0, 0, 0, 0, -1)
     )
-    current_timestamp = time.mktime(current.timetuple()) + current.microsecond / 1_000_000
+    current_timestamp = (
+        time.mktime(current.timetuple()) + current.microsecond / 1_000_000
+    )
     return max(0.0, next_midnight - current_timestamp)
 
 
@@ -81,7 +82,7 @@ class DailyLogWriter:
             for path in self.directory.glob("gunicorn-*.log")
             if LOG_PATTERN.fullmatch(path.name)
         )
-        for old_path in log_files[:-self.keep]:
+        for old_path in log_files[: -self.keep]:
             old_path.unlink()
 
     def write(self, contents: bytes) -> None:
