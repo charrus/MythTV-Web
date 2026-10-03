@@ -100,6 +100,7 @@ def _probe_recording(app: Flask, recorded_id: int) -> dict:
             subtitles.append(
                 {
                     "index": stream.get("index"),
+                    "codec": stream.get("codec_name"),
                     "language": tags.get("language", "und"),
                     "title": tags.get("title", ""),
                 }
@@ -162,6 +163,13 @@ def _load_all_recordings(app: Flask) -> list[dict]:
 def create_app() -> Flask:
     app = Flask(__name__)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
+
+    @app.after_request
+    def set_browser_wasm_isolation_headers(response):
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+        return response
+
     app.config["MYTHTV_BACKEND_URL"] = os.environ.get(
         "MYTHTV_BACKEND_URL", DEFAULT_BACKEND_URL
     ).rstrip("/")

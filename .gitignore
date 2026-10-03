@@ -5,3 +5,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .run/
+/node_modules/
+/mythtv_web/static/build/
+/mythtv_web/static/vendor/

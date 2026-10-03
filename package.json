@@ -1,0 +1,14 @@
+{
+  "name": "mythtv-web-browser-playback-experiment",
+  "private": true,
+  "scripts": {
+    "build:browser": "node scripts/build_browser.js"
+  },
+  "dependencies": {
+    "@ffmpeg/core": "0.12.10",
+    "@ffmpeg/ffmpeg": "0.12.15"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.5"
+  }
+}

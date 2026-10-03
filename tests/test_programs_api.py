@@ -13,7 +13,11 @@ def test_home_renders_recordings_library():
 
     assert response.status_code == 200
     assert b"Recordings" in response.data
-    assert b"library.js" in response.data
+    assert b"/static/build/library.js" in response.data
+    assert b'id="browser-wasm-test"' in response.data
+    assert b'id="browser-wasm-stream"' in response.data
+    assert response.headers["Cross-Origin-Opener-Policy"] == "same-origin"
+    assert response.headers["Cross-Origin-Embedder-Policy"] == "require-corp"
 
 
 def test_home_uses_forwarded_prefix_for_assets_and_navigation():
@@ -27,6 +31,8 @@ def test_home_uses_forwarded_prefix_for_assets_and_navigation():
     assert b'content="/mythtv-web"' in response.data
     assert b'href="/mythtv-web/static/library.css"' in response.data
     assert b'href="/mythtv-web/"' in response.data
+    assert b'src="/mythtv-web/static/build/library.js"' in response.data
+    assert b'id="browser-wasm-stream"' in response.data
 
 
 def test_program_list_is_proxied_with_pagination(monkeypatch):
@@ -340,7 +346,7 @@ def test_playback_info_returns_mythtv_markers_and_resume_positions(
     assert response.json["last_position"] == 45000
     assert response.json["bookmark"] == 60000
     assert response.json["media"]["subtitles"] == [
-        {"index": 3, "language": "eng", "title": ""}
+        {"index": 3, "codec": "subrip", "language": "eng", "title": ""}
     ]
     assert len(requests_made) == 4
     assert all(call[1]["params"]["ChanId"] == 123 for call in requests_made)
@@ -493,18 +499,25 @@ def test_transcode_stream_removes_process_registration_after_completion(
             return 0
 
     process = Process()
+    commands = []
+
+    def fake_popen(command, **kwargs):
+        commands.append(command)
+        return process
+
     monkeypatch.setattr("mythtv_web.shutil.which", lambda _: "/usr/bin/ffmpeg")
-    monkeypatch.setattr("mythtv_web.subprocess.Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr("mythtv_web.subprocess.Popen", fake_popen)
     app = create_app()
     app.config["MYTHTV_RECORDINGS_CACHE_PATH"] = str(cache_path)
     app.config["MYTHTV_TRANSCODE_DIR"] = str(tmp_path / "transcodes")
 
     response = app.test_client().get(
-        f"/api/playback/42/transcode?start=0&token={token}", buffered=False
+        f"/api/playback/42/transcode?start=123.5&token={token}", buffered=False
     )
     process_path = tmp_path / "transcodes" / f"{token}.pid"
 
     assert response.status_code == 200
+    assert commands[0][commands[0].index("-ss") + 1] == "123.5"
     assert process_path.read_text() == "9876"
     assert b"".join(response.response) == b"fragment"
     assert process.terminated
@@ -524,7 +537,14 @@ def test_subtitle_endpoint_extracts_only_known_subtitle_tracks(monkeypatch, tmp_
         lambda app, recorded_id: {
             "video_codec": "hevc",
             "audio_codec": "eac3",
-            "subtitles": [{"index": 3, "language": "eng", "title": "English"}],
+            "subtitles": [
+                {
+                    "index": 3,
+                    "codec": "subrip",
+                    "language": "eng",
+                    "title": "English",
+                }
+            ],
         },
     )
     captured = {}

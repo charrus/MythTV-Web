@@ -15,13 +15,22 @@ python -m pip install -r requirements-dev.txt
 
 `requirements.txt` contains runtime dependencies; `requirements-dev.txt` adds pytest, Ruff, and Black.
 
+The browser FFmpeg experiment requires Node.js 20 or newer. Build its FFmpeg.wasm browser assets after checkout or dependency updates:
+
+```sh
+npm ci
+npm run build:browser
+```
+
 ## Recordings library
 
 The home page groups recordings by program title, like MythFrontend. Selecting a group shows all recordings in that group. Flask loads the full recorded-program list from MythTV's `Dvr/GetRecordedList` service and caches it under `.run/` for two minutes so every Gunicorn worker can serve complete groups consistently. The first group load can take several seconds for a large library. Flask also proxies cover art locally, so the browser does not connect to MythTV directly. The default backend URL is `http://127.0.0.1:6544`; set `MYTHTV_BACKEND_URL` if the local backend uses another address. Search and watched-state filters are available in both views.
 
 ## Browser playback
 
-Recordings play through MythTV's `Content/GetRecording` service proxied by Flask, preserving byte-range requests for seeking. The player uses MythTV commercial-break markers for smart/advert skipping and stores its resume position through `Dvr/SetLastPlayPos`. Browser-native playback is used when possible; recordings with HEVC or E-AC-3 audio are transcoded to H.264/AAC on demand. Embedded subtitle tracks are extracted as WebVTT when selected. Install `ffmpeg` and `ffprobe` on the server for codec fallback and embedded subtitles. Commercial skipping is available only when MythTV has commercial-break markers for that recording. Browser playback is limited to codecs the browser can decode or that FFmpeg can transcode.
+Recordings play through MythTV's `Content/GetRecording` service proxied by Flask, preserving byte-range requests for seeking. The player uses MythTV commercial-break markers for smart/advert skipping and stores its resume position through `Dvr/SetLastPlayPos`. Browser-supported recordings stream directly. When the recording uses codecs browsers commonly cannot decode (including DVB-T MPEG-2/MP2), Flask runs FFmpeg on the server and streams fragmented H.264/AAC MP4 as it is produced; the full recording is never downloaded to the browser first. Seeking during conversion sends a new start position to Flask, which cancels the previous FFmpeg process and starts a stream from that point. Install `ffmpeg` on the server for video fallback and subtitle extraction, and `ffprobe` for codec probing. DVB bitmap subtitle tracks may not be convertible to browser text subtitles. Commercial skipping is available only when MythTV has commercial-break markers for that recording.
+
+The player has two browser-side experiments. **Test 15-second browser conversion** requests at most 16 MB, stages that bounded range in FFmpeg.wasm, converts up to 15 seconds, and tries converting the first subtitle stream to WebVTT. **Test pipe-streamed WASM input** feeds the recording response into FFmpeg.wasm's `pipe:0` input through a 1 MB shared-memory ring, then converts up to 15 seconds; FFmpeg may read ahead, but does not need the full recording staged in memory. This pipe mode requires a cross-origin-isolated page, so Flask sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`; a reverse proxy must preserve these headers. DVB teletext subtitle tracks may contain no extractable text cues. These are playback experiments, not the normal player or full-length seek implementation. The FFmpeg core is about 32 MB and can be retained by the browser cache after first load.
 
 ## Quality checks
 

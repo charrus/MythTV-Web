@@ -7,7 +7,7 @@
     <meta name="app-root" content="{{ request.script_root }}">
     <title>Recordings | MythTV</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='library.css') }}">
-    <script src="{{ url_for('static', filename='library.js') }}" defer></script>
+    <script type="module" src="{{ url_for('static', filename='build/library.js') }}"></script>
   </head>
   <body>
     <header class="topbar">
@@ -66,6 +66,8 @@
         </header>
         <video id="recording-video" playsinline preload="metadata"></video>
         <p class="player-status" id="player-status" aria-live="polite">Loading recording…</p>
+        <button class="player-button browser-wasm-test" id="browser-wasm-test" type="button" title="Downloads at most 16 MB and converts a 15-second sample on this device" hidden>Test 15-second browser conversion</button>
+        <button class="player-button browser-wasm-test" id="browser-wasm-stream" type="button" title="Stream recording bytes through a bounded pipe into FFmpeg.wasm" hidden>Test pipe-streamed WASM input</button>
         <div class="player-seek-row">
           <span id="playback-elapsed">0:00</span>
           <input id="playback-seek" type="range" min="0" max="1000" value="0" aria-label="Seek through recording">
