@@ -15,6 +15,10 @@ python -m pip install -r requirements-dev.txt
 
 `requirements.txt` contains runtime dependencies; `requirements-dev.txt` adds pytest, Ruff, and Black.
 
+## Recordings library
+
+The home page displays the recorded-program library from MythTV's `Dvr/GetRecordedList` service. Flask proxies the API and cover art locally, so the browser does not connect to the MythTV backend directly. The default backend URL is `http://127.0.0.1:6544`; set `MYTHTV_BACKEND_URL` if the local backend uses another address. The page supports title/channel search over loaded results, watched-state filters, and pagination.
+
 ## Quality checks
 
 Run these checks before committing Python changes:

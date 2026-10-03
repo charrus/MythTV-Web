@@ -3,12 +3,61 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>MythTV</title>
+    <meta name="theme-color" content="#17211d">
+    <title>Recordings | MythTV</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='library.css') }}">
+    <script src="{{ url_for('static', filename='library.js') }}" defer></script>
   </head>
   <body>
-    <main>
-      <h1>MythTV</h1>
-      <p>The web interface is running. MythTV controls can be added here.</p>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="MythTV home">
+        <span class="brand-mark" aria-hidden="true">M</span>
+        <span>MYTHTV</span>
+      </a>
+      <nav aria-label="Main navigation">
+        <a class="nav-link active" href="/" aria-current="page">Recordings</a>
+      </nav>
+      <div class="system-state"><span></span> Local library</div>
+    </header>
+
+    <main class="library-shell">
+      <section class="library-heading" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">MYTH BACKEND <span>/</span> VIDEO LIBRARY</p>
+          <h1 id="page-title">Recordings</h1>
+          <p class="library-summary"><strong id="total-count">--</strong> programs in your library</p>
+        </div>
+        <div class="sync-note" id="sync-note" aria-live="polite">Connecting to MythTV…</div>
+      </section>
+
+      <section class="toolbar" aria-label="Library controls">
+        <label class="search-box">
+          <span aria-hidden="true">⌕</span>
+          <input id="search" type="search" placeholder="Search loaded programs" autocomplete="off">
+          <kbd>/</kbd>
+        </label>
+        <div class="filter-group" role="group" aria-label="Filter by watched status">
+          <button class="filter-button selected" type="button" data-filter="all" aria-pressed="true">All</button>
+          <button class="filter-button" type="button" data-filter="unwatched" aria-pressed="false">Unwatched</button>
+          <button class="filter-button" type="button" data-filter="watched" aria-pressed="false">Watched</button>
+        </div>
+      </section>
+
+      <p class="result-note" id="result-note" aria-live="polite"></p>
+      <div class="program-grid" id="program-grid" aria-live="polite" aria-busy="true"></div>
+      <div class="empty-state" id="empty-state" hidden>
+        <span class="empty-mark" aria-hidden="true">—</span>
+        <h2 id="empty-title">No recordings found</h2>
+        <p id="empty-description">Try another search or change the watched filter.</p>
+      </div>
+      <div class="load-row">
+        <button class="load-button" id="load-more" type="button" hidden>Load more</button>
+      </div>
     </main>
+
+    <footer class="page-footer">
+      <span>MYTHTV WEB</span>
+      <span id="loaded-count">Waiting for backend</span>
+    </footer>
   </body>
 </html>
