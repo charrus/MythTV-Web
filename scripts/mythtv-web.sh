@@ -5,8 +5,9 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 RUN_DIR="$PROJECT_DIR/.run"
 PID_FILE="$RUN_DIR/gunicorn.pid"
-LOG_FILE="$RUN_DIR/gunicorn.log"
 GUNICORN="$PROJECT_DIR/.venv/bin/gunicorn"
+PYTHON="$PROJECT_DIR/.venv/bin/python"
+LOG_RUNNER="$SCRIPT_DIR/daily_gunicorn.py"
 APP_TARGET='mythtv_web:create_app()'
 
 pid_is_managed() {
@@ -30,6 +31,10 @@ start_server() {
         printf 'Gunicorn not found at %s; install requirements in .venv first.\n' "$GUNICORN" >&2
         return 1
     fi
+    if [[ ! -x "$PYTHON" ]]; then
+        printf 'Python not found at %s; create the project .venv first.\n' "$PYTHON" >&2
+        return 1
+    fi
 
     mkdir -p "$RUN_DIR"
     if pid="$(read_pid)" && kill -0 "$pid" 2>/dev/null; then
@@ -43,7 +48,7 @@ start_server() {
     rm -f "$PID_FILE"
 
     cd "$PROJECT_DIR"
-    nohup "$GUNICORN" --workers 2 --bind 0.0.0.0:5000 --pid "$PID_FILE" "$APP_TARGET" >>"$LOG_FILE" 2>&1 </dev/null &
+    nohup "$PYTHON" "$LOG_RUNNER" >>/dev/null 2>&1 </dev/null &
     local launch_pid=$!
 
     for attempt in {1..50}; do
@@ -52,13 +57,13 @@ start_server() {
             return 0
         fi
         if ! kill -0 "$launch_pid" 2>/dev/null; then
-            printf 'Gunicorn exited during startup. See %s.\n' "$LOG_FILE" >&2
+            printf 'Gunicorn exited during startup. Check dated logs under %s.\n' "$RUN_DIR" >&2
             return 1
         fi
         sleep 0.1
     done
 
-    printf 'Timed out waiting for Gunicorn to start. See %s.\n' "$LOG_FILE" >&2
+    printf 'Timed out waiting for Gunicorn to start. Check dated logs under %s.\n' "$RUN_DIR" >&2
     return 1
 }
 
