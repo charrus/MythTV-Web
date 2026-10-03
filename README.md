@@ -29,6 +29,19 @@ gunicorn --workers 2 --bind 0.0.0.0:5000 'mythtv_web:create_app()'
 
 The landing page is at `/`; `/healthz` returns a small JSON health response. Stop the process with Ctrl+C when running it in the foreground.
 
+## Background service
+
+Use the launcher to manage Gunicorn in the background. It records its PID and writes logs under the ignored `.run/` directory:
+
+```sh
+./scripts/mythtv-web.sh start
+./scripts/mythtv-web.sh status
+./scripts/mythtv-web.sh restart
+./scripts/mythtv-web.sh stop
+```
+
+The launcher requires dependencies to be installed in `.venv/`. It only stops the Gunicorn process identified by its own PID file and refuses to signal a different process.
+
 ## Apache reverse proxy
 
 Enable Apache's `proxy`, `proxy_http`, and `auth_basic` modules as needed. A virtual host can proxy to the service while requiring authentication, for example:

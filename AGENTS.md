@@ -14,6 +14,7 @@ This project is a Python web server that will provide a browser-based interface 
 6. Keep MythTV integration local to this server. Add specific MythTV features incrementally as requirements are agreed and documented.
 7. Preserve the existing `/` landing route and `/healthz` health endpoint unless a change is intentionally required and documented.
 8. Keep this file updated as project requirements, architecture, and operational assumptions evolve.
+9. Manage the background Gunicorn service with `scripts/mythtv-web.sh`, which supports `start`, `stop`, `restart`, and `status`.
 
 ## Development Guidance
 
