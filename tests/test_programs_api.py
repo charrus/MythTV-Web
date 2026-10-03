@@ -40,8 +40,28 @@ def test_home_includes_accessible_fullscreen_playback_controls():
     assert response.status_code == 200
     assert b'id="jump-back-ten-minutes"' in response.data
     assert b'id="jump-forward-ten-minutes"' in response.data
+    assert b'id="player-toggle"' in response.data
+    assert (
+        b'id="skip-ad"' in response.data
+        and b'id="skip-ad" type="button"' in response.data
+    )
     assert b'id="player-exit-fullscreen"' in response.data
     assert b'aria-label="Exit fullscreen"' in response.data
+    control_order = [
+        response.data.index(f'id="{control}"'.encode())
+        for control in (
+            "jump-back-ten-minutes",
+            "jump-back",
+            "player-toggle",
+            "jump-forward",
+            "jump-forward-ten-minutes",
+        )
+    ]
+    assert control_order == sorted(control_order)
+    assert (
+        b'id="skip-ad" type="button" aria-label="Skip commercial break" title="Skip to the end of the next commercial break" disabled hidden'
+        in response.data
+    )
 
 
 def test_program_list_is_proxied_with_pagination(monkeypatch):
@@ -364,6 +384,74 @@ def test_playback_info_returns_mythtv_markers_and_resume_positions(
     ]
     assert len(requests_made) == 4
     assert all(call[1]["params"]["ChanId"] == 123 for call in requests_made)
+
+
+def test_live_playback_status_refreshes_end_time_and_commercial_markers(
+    monkeypatch, tmp_path
+):
+    programs = [
+        {
+            "Title": "Example series",
+            "StartTime": "2026-10-03T10:00:00Z",
+            "EndTime": "2026-10-03T11:00:00Z",
+            "Recording": {
+                "RecordedId": 42,
+                "RecGroup": "Seasons",
+                "StatusName": "Recording",
+            },
+            "Channel": {"ChanId": 123},
+        }
+    ]
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.payload
+
+    requests_made = []
+
+    def fake_get(url, **kwargs):
+        requests_made.append((url, kwargs))
+        if url.endswith("Dvr/GetRecorded"):
+            return Response(
+                {
+                    "Program": {
+                        "EndTime": "2026-10-03T11:20:00Z",
+                        "Recording": {"StatusName": "Recording"},
+                    }
+                }
+            )
+        if url.endswith("Dvr/GetRecordedCommBreak"):
+            return Response(
+                {"CutList": {"Cuttings": [{"Start": 120000, "End": 180000}]}}
+            )
+        raise AssertionError(f"Unexpected MythTV request: {url}")
+
+    monkeypatch.setattr("mythtv_web.requests.get", fake_get)
+    app = create_app()
+    cache_path = tmp_path / "recordings.json"
+    cache_path.write_text(json.dumps({"cached_at": time.time(), "programs": programs}))
+    app.config["MYTHTV_RECORDINGS_CACHE_PATH"] = str(cache_path)
+
+    response = app.test_client().get("/api/playback/42/live-status")
+
+    assert response.status_code == 200
+    assert response.json == {
+        "in_progress": True,
+        "end_time": "2026-10-03T11:20:00Z",
+        "comm_breaks": [{"Start": 120000, "End": 180000}],
+    }
+    assert requests_made[0][1]["params"] == {"RecordedId": 42}
+    assert requests_made[1][1]["params"] == {
+        "RecordedId": 42,
+        "OffsetType": "Duration",
+        "IncludeFps": "false",
+    }
 
 
 def test_recording_stream_forwards_byte_range(monkeypatch, tmp_path):

@@ -500,6 +500,57 @@ def create_app() -> Flask:
             bookmark=int(bookmark.json().get("long", 0)),
         )
 
+    @app.get("/api/playback/<int:recorded_id>/live-status")
+    def playback_live_status(recorded_id):
+        try:
+            cached_program = _active_recording(app, recorded_id)
+        except (requests.RequestException, ValueError, OSError) as error:
+            app.logger.warning("MythTV live playback lookup failed: %s", error)
+            return jsonify(error="MythTV backend is unavailable"), 502
+        if cached_program is None:
+            return jsonify(error="Recording not found"), 404
+
+        try:
+            current = requests.get(
+                f"{app.config['MYTHTV_BACKEND_URL']}/Dvr/GetRecorded",
+                params={"RecordedId": recorded_id},
+                headers={"Accept": "application/json"},
+                timeout=app.config["MYTHTV_TIMEOUT"],
+            )
+            current.raise_for_status()
+            payload = current.json()
+            program = payload.get("Program") if isinstance(payload, dict) else None
+            if not isinstance(program, dict):
+                return jsonify(error="Invalid MythTV recording status response"), 502
+
+            recording = program.get("Recording") or {}
+            status_name = str(recording.get("StatusName", ""))
+            end_time = program.get("EndTime") or recording.get("EndTs")
+            in_progress = status_name.casefold() == "recording"
+            comm_breaks = []
+            if in_progress:
+                markers = requests.get(
+                    f"{app.config['MYTHTV_BACKEND_URL']}/Dvr/GetRecordedCommBreak",
+                    params={
+                        "RecordedId": recorded_id,
+                        "OffsetType": "Duration",
+                        "IncludeFps": "false",
+                    },
+                    headers={"Accept": "application/json"},
+                    timeout=app.config["MYTHTV_TIMEOUT"],
+                )
+                markers.raise_for_status()
+                comm_breaks = (markers.json().get("CutList") or {}).get("Cuttings", [])
+        except (requests.RequestException, ValueError, AttributeError) as error:
+            app.logger.info("MythTV live playback status refresh failed: %s", error)
+            return jsonify(error="Could not refresh MythTV recording status"), 502
+
+        return jsonify(
+            in_progress=in_progress,
+            end_time=end_time,
+            comm_breaks=comm_breaks,
+        )
+
     @app.get("/api/playback/<int:recorded_id>/stream")
     def playback_stream(recorded_id):
         try:

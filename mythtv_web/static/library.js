@@ -40,6 +40,7 @@ let subtitleElement = null;
 let lastSavedPosition = -1;
 let smartSkipBusy = false;
 let controlsHideTimer = null;
+let liveRecordingTimer = null;
 const BROWSER_CONVERSION_ENABLED = false;
 
 function appPath(path) {
@@ -120,6 +121,46 @@ function secondsFromMarker(value) {
   const parts = String(value || "").split(":").map(Number);
   if (parts.some((part) => !Number.isFinite(part))) return NaN;
   return parts.reduce((total, part) => total * 60 + part, 0);
+}
+
+function updateCommercialBreaks(markers) {
+  commercialBreaks = (markers || []).map((marker) => ({
+    start: secondsFromMarker(marker.Start ?? marker.start),
+    end: secondsFromMarker(marker.End ?? marker.end),
+  })).filter((marker) => Number.isFinite(marker.start) && Number.isFinite(marker.end) && marker.end > marker.start);
+  skipAdButton.hidden = commercialBreaks.length === 0;
+  skipAdButton.disabled = commercialBreaks.length === 0;
+}
+
+async function refreshLiveRecording(recordedId) {
+  if (activeRecording?.Recording?.RecordedId !== recordedId) return;
+  try {
+    const response = await fetch(appPath(`/api/playback/${recordedId}/live-status`));
+    if (!response.ok) throw new Error(`Request failed (${response.status})`);
+    const status = await response.json();
+    if (activeRecording?.Recording?.RecordedId !== recordedId) return;
+    if (status.end_time) {
+      activeRecording.EndTime = status.end_time;
+      activeRecording.Recording.EndTs = status.end_time;
+      updatePlaybackProgress();
+    }
+    if (status.in_progress) updateCommercialBreaks(status.comm_breaks);
+    else {
+      window.clearInterval(liveRecordingTimer);
+      liveRecordingTimer = null;
+    }
+  } catch (error) {
+    playerStatus.textContent = `Could not refresh live recording status: ${error.message}`;
+  }
+}
+
+function startLiveRecordingUpdates(recordedId) {
+  window.clearInterval(liveRecordingTimer);
+  refreshLiveRecording(recordedId);
+  liveRecordingTimer = window.setInterval(
+    () => refreshLiveRecording(recordedId),
+    20_000,
+  );
 }
 
 function updatePlaybackProgress() {
@@ -295,8 +336,12 @@ async function openPlayer(program, startMode = "resume") {
   const recordedId = program.Recording?.RecordedId;
   if (!recordedId) return;
   activeRecording = program;
+  window.clearInterval(liveRecordingTimer);
+  liveRecordingTimer = null;
   playbackInfo = null;
   commercialBreaks = [];
+  skipAdButton.hidden = true;
+  skipAdButton.disabled = true;
   usingTranscode = false;
   usingWasm = false;
   transcodeBase = 0;
@@ -319,11 +364,17 @@ async function openPlayer(program, startMode = "resume") {
     const response = await fetch(appPath(`/api/playback/${recordedId}`));
     if (!response.ok) throw new Error(`Request failed (${response.status})`);
     playbackInfo = await response.json();
-    commercialBreaks = playbackInfo.comm_breaks.map((marker) => ({
-      start: secondsFromMarker(marker.Start ?? marker.start),
-      end: secondsFromMarker(marker.End ?? marker.end),
-    })).filter((marker) => Number.isFinite(marker.start) && Number.isFinite(marker.end) && marker.end > marker.start);
-    skipAdButton.disabled = commercialBreaks.length === 0;
+    if (playbackInfo.program) {
+      activeRecording = {
+        ...program,
+        ...playbackInfo.program,
+        Recording: { ...program.Recording, ...playbackInfo.program.Recording },
+      };
+    }
+    updateCommercialBreaks(playbackInfo.comm_breaks);
+    if (activeRecording.Recording?.StatusName?.toLowerCase() === "recording") {
+      startLiveRecordingUpdates(recordedId);
+    }
     const subtitles = document.querySelector("#subtitle-track");
     playbackInfo.media.subtitles.forEach((track) => {
       const label = track.title || (
@@ -372,6 +423,8 @@ async function openPlayer(program, startMode = "resume") {
 
 function closePlayer() {
   if (!activeRecording) return;
+  window.clearInterval(liveRecordingTimer);
+  liveRecordingTimer = null;
   savePlaybackPosition();
   cancelTranscode();
   stopWasmPlayback();

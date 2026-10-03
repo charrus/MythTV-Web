@@ -97,22 +97,24 @@
               <span id="playback-duration">0:00</span>
             </div>
             <div class="player-toolbar" role="group" aria-label="Playback controls">
-              <button class="player-button player-icon-button" id="player-toggle" type="button" aria-label="Play" title="Play">
-                <svg class="player-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 12 7-12 7z" /></svg>
-              </button>
-              <button class="player-button player-icon-button" id="jump-back" type="button" aria-label="Jump back 10 seconds" title="Jump back 10 seconds">
-                <svg class="player-icon" viewBox="0 0 32 24" aria-hidden="true"><path d="M8 7H3V2M3 7a10 10 0 1 1-1 9" /><text class="player-icon-label" x="18" y="13">10</text></svg>
-              </button>
-              <button class="player-button player-icon-button" id="jump-forward" type="button" aria-label="Jump forward 30 seconds" title="Jump forward 30 seconds">
-                <svg class="player-icon" viewBox="0 0 32 24" aria-hidden="true"><path d="M24 7h5V2m0 5a10 10 0 1 0 1 9" /><text class="player-icon-label" x="14" y="13">30</text></svg>
-              </button>
-              <button class="player-button player-icon-button" id="jump-back-ten-minutes" type="button" aria-label="Jump back 10 minutes" title="Jump back 10 minutes">
-                <svg class="player-icon" viewBox="0 0 32 24" aria-hidden="true"><path d="M8 7H3V2M3 7a10 10 0 1 1-1 9" /><text class="player-icon-label" x="18" y="13">10m</text></svg>
-              </button>
-              <button class="player-button player-icon-button" id="jump-forward-ten-minutes" type="button" aria-label="Jump forward 10 minutes" title="Jump forward 10 minutes">
-                <svg class="player-icon" viewBox="0 0 32 24" aria-hidden="true"><path d="M24 7h5V2m0 5a10 10 0 1 0 1 9" /><text class="player-icon-label" x="14" y="13">10m</text></svg>
-              </button>
-              <button class="player-button player-icon-button" id="skip-ad" type="button" aria-label="Skip commercial break" title="Skip to the end of the next commercial break" disabled>
+              <div class="player-transport" role="group" aria-label="Seek and playback">
+                <button class="player-button player-icon-button" id="jump-back-ten-minutes" type="button" aria-label="Jump back 10 minutes" title="Jump back 10 minutes">
+                  <svg class="player-icon player-skip-icon" viewBox="0 0 40 36" aria-hidden="true"><path d="m15 3-8 7 8 7m10-14-8 7 8 7M32 2v17" /><text class="player-icon-label" x="20" y="34">10m</text></svg>
+                </button>
+                <button class="player-button player-icon-button" id="jump-back" type="button" aria-label="Jump back 10 seconds" title="Jump back 10 seconds">
+                  <svg class="player-icon player-skip-icon" viewBox="0 0 40 36" aria-hidden="true"><path d="m15 3-8 7 8 7m10-14-8 7 8 7M32 2v17" /><text class="player-icon-label" x="20" y="34">10s</text></svg>
+                </button>
+                <button class="player-button player-icon-button player-toggle" id="player-toggle" type="button" aria-label="Play" title="Play">
+                  <svg class="player-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 12 7-12 7z" /></svg>
+                </button>
+                <button class="player-button player-icon-button" id="jump-forward" type="button" aria-label="Jump forward 30 seconds" title="Jump forward 30 seconds">
+                  <svg class="player-icon player-skip-icon" viewBox="0 0 40 36" aria-hidden="true"><path d="m25 3 8 7-8 7m-10-14 8 7-8 7M8 2v17" /><text class="player-icon-label" x="20" y="34">30s</text></svg>
+                </button>
+                <button class="player-button player-icon-button" id="jump-forward-ten-minutes" type="button" aria-label="Jump forward 10 minutes" title="Jump forward 10 minutes">
+                  <svg class="player-icon player-skip-icon" viewBox="0 0 40 36" aria-hidden="true"><path d="m25 3 8 7-8 7m-10-14 8 7-8 7M8 2v17" /><text class="player-icon-label" x="20" y="34">10m</text></svg>
+                </button>
+              </div>
+              <button class="player-button player-icon-button" id="skip-ad" type="button" aria-label="Skip commercial break" title="Skip to the end of the next commercial break" disabled hidden>
                 <svg class="player-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5v14l11-7zM19 5v14" /><text class="player-icon-label" x="11" y="22">AD</text></svg>
               </button>
               <label class="player-select-label" for="playback-speed">Speed</label>

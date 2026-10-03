@@ -826,12 +826,42 @@ h1 {
 }
 
 .player-icon-label {
-  fill: currentColor;
+  fill: #fff;
   stroke: none;
-  font-family: inherit;
-  font-size: 7px;
-  font-weight: 700;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  font-size: 9px;
+  font-weight: 800;
   text-anchor: middle;
+}
+
+.player-skip-icon {
+  width: 32px;
+  height: 34px;
+}
+
+.player-transport {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.player-toggle {
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
+  min-height: 48px;
+  border-color: #8a9b71;
+  background: #344332;
+  color: #f4f5e8;
+}
+
+.player-toggle:hover:not(:disabled) {
+  background: #46583f;
+}
+
+.player-button[hidden] {
+  display: none;
 }
 
 #recording-video {
