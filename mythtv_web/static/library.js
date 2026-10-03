@@ -15,12 +15,21 @@ const resultNote = document.querySelector("#result-note");
 const backButton = document.querySelector("#back-to-groups");
 const playerDialog = document.querySelector("#player-dialog");
 const playerVideo = document.querySelector("#recording-video");
+const playerShell = document.querySelector(".player-shell");
+const playerOverlay = document.querySelector("#player-overlay");
+const deleteDialog = document.querySelector("#delete-dialog");
+const deleteCheckbox = document.querySelector("#delete-confirm-check");
+const deleteButton = document.querySelector("#delete-confirm-button");
+const deleteCancelButton = document.querySelector("#delete-dialog-cancel");
+const deleteStatus = document.querySelector("#delete-status");
 const playerStatus = document.querySelector("#player-status");
 const playbackSeek = document.querySelector("#playback-seek");
 const smartSkip = document.querySelector("#smart-skip");
 const skipAdButton = document.querySelector("#skip-ad");
 let activeRecording = null;
 let playbackInfo = null;
+let pendingDelete = null;
+let deleteInProgress = false;
 let commercialBreaks = [];
 let usingTranscode = false;
 let usingWasm = false;
@@ -30,6 +39,7 @@ let wasmPlayback = null;
 let subtitleElement = null;
 let lastSavedPosition = -1;
 let smartSkipBusy = false;
+let controlsHideTimer = null;
 const BROWSER_CONVERSION_ENABLED = false;
 
 function appPath(path) {
@@ -281,7 +291,7 @@ async function startWasmTranscode(seconds = 0) {
   }
 }
 
-async function openPlayer(program) {
+async function openPlayer(program, startMode = "resume") {
   const recordedId = program.Recording?.RecordedId;
   if (!recordedId) return;
   activeRecording = program;
@@ -327,7 +337,11 @@ async function openPlayer(program) {
       );
       subtitles.add(option);
     });
-    const resumeMilliseconds = playbackInfo.last_position || playbackInfo.bookmark || 0;
+    const resumeMilliseconds = startMode === "beginning"
+      ? 0
+      : startMode === "bookmark"
+        ? playbackInfo.bookmark
+        : playbackInfo.last_position || playbackInfo.bookmark || 0;
     const resumePosition = Math.max(0, resumeMilliseconds / 1000);
     const knownUnsupported = ["hevc", "eac3", "mpeg2video", "mpeg1video", "mp2", "ac3"].some((codec) =>
       [playbackInfo.media.video_codec, playbackInfo.media.audio_codec].includes(codec),
@@ -448,6 +462,27 @@ function makePoster(sourceUrl, badgeText = "", fallbackUrl = "") {
   return poster;
 }
 
+function makeRecordingAction(label, iconMarkup, handler) {
+  const button = document.createElement("button");
+  button.className = "recording-action";
+  button.type = "button";
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.innerHTML = `<svg class="recording-action-icon" viewBox="0 0 24 24" aria-hidden="true">${iconMarkup}</svg>`;
+  button.addEventListener("click", handler);
+  return button;
+}
+
+function showDeleteDialog(program) {
+  pendingDelete = program;
+  deleteCheckbox.checked = false;
+  deleteButton.disabled = true;
+  deleteStatus.textContent = "";
+  document.querySelector("#delete-recording-name").textContent =
+    program.SubTitle || program.Title || "Untitled recording";
+  deleteDialog.showModal();
+}
+
 function matchesProgramFilter(program) {
   if (activeFilter === "watched") return isWatched(program);
   if (activeFilter === "unwatched") return !isWatched(program);
@@ -509,6 +544,21 @@ function makeProgramCard(program, index) {
     isWatched(program) ? "Watched" : "",
     previewUrl(program),
   );
+  const posterButton = document.createElement("button");
+  posterButton.className = "recording-poster-button";
+  posterButton.type = "button";
+  posterButton.setAttribute(
+    "aria-label",
+    `Resume ${program.SubTitle || program.Title || "recording"}`,
+  );
+  posterButton.title = "Resume recording";
+  posterButton.append(poster);
+  const posterPlayIcon = document.createElement("span");
+  posterPlayIcon.className = "poster-play-mark";
+  posterPlayIcon.setAttribute("aria-hidden", "true");
+  posterPlayIcon.innerHTML = '<svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7z" /></svg>';
+  posterButton.append(posterPlayIcon);
+  posterButton.addEventListener("click", () => openPlayer(program, "resume"));
 
   const info = document.createElement("div");
   info.className = "program-info";
@@ -535,13 +585,31 @@ function makeProgramCard(program, index) {
   size.textContent = formatSize(program.FileSize);
   meta.append(date, size);
   info.append(channel, title, subtitle, description, meta);
-  const playButton = document.createElement("button");
-  playButton.className = "recording-play";
-  playButton.type = "button";
-  playButton.textContent = "Play";
-  playButton.setAttribute("aria-label", `Play ${program.SubTitle || program.Title}`);
-  playButton.addEventListener("click", () => openPlayer(program));
-  card.append(poster, info, playButton);
+  const actions = document.createElement("div");
+  actions.className = "recording-actions";
+  actions.setAttribute("role", "group");
+  actions.setAttribute("aria-label", "Recording actions");
+  const recordingActions = [
+    makeRecordingAction(
+      "Play from beginning",
+      '<path d="M5 5v14l11-7zM19 7a8 8 0 1 1-2-2" /><path d="M19 3v4h-4" /><text x="11" y="16">0</text>',
+      () => openPlayer(program, "beginning"),
+    ),
+    makeRecordingAction(
+      "Play from bookmark",
+      '<path d="M6 3h12v18l-6-4-6 4z" />',
+      () => openPlayer(program, "bookmark"),
+    ),
+  ];
+  if (deleteDialog) {
+    recordingActions.push(makeRecordingAction(
+      "Delete recording",
+      '<path d="M4 7h16M10 11v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3" />',
+      () => showDeleteDialog(program),
+    ));
+  }
+  actions.append(...recordingActions);
+  card.append(posterButton, info, actions);
   return card;
 }
 
@@ -696,6 +764,65 @@ document.querySelectorAll(".filter-button").forEach((button) => {
   });
 });
 backButton.addEventListener("click", returnToGroups);
+if (deleteDialog) {
+  deleteCheckbox.addEventListener("change", () => {
+    deleteButton.disabled = !deleteCheckbox.checked || deleteInProgress;
+  });
+  deleteCancelButton.addEventListener("click", () => deleteDialog.close());
+  deleteDialog.addEventListener("cancel", (event) => {
+    if (deleteInProgress) event.preventDefault();
+  });
+  deleteDialog.addEventListener("close", () => {
+    if (!deleteInProgress) pendingDelete = null;
+  });
+  deleteButton.addEventListener("click", async () => {
+    if (!pendingDelete || !deleteCheckbox.checked || deleteInProgress) return;
+
+    const program = pendingDelete;
+    const recordedId = program.Recording?.RecordedId;
+    if (!recordedId) return;
+    deleteInProgress = true;
+    deleteButton.disabled = true;
+    deleteCancelButton.disabled = true;
+    deleteCheckbox.disabled = true;
+    deleteStatus.textContent = "Sending delete request to MythTV…";
+
+    try {
+      const response = await fetch(appPath(`/api/recordings/${recordedId}`), {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmed: true }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error || `Request failed (${response.status})`);
+      }
+
+      currentPrograms = currentPrograms.filter(
+        (item) => item.Recording?.RecordedId !== recordedId,
+      );
+      const group = programGroups.find((item) => item.title === (program.Title || "Untitled recording"));
+      if (group) {
+        group.recording_count = Math.max(0, group.recording_count - 1);
+        if (isWatched(program)) group.watched_count = Math.max(0, group.watched_count - 1);
+      }
+      programGroups = programGroups.filter((item) => item.recording_count > 0);
+      totalRecordings = Math.max(0, totalRecordings - 1);
+      pendingDelete = null;
+      deleteInProgress = false;
+      deleteDialog.close();
+      if (currentPrograms.length) renderGroupPrograms();
+      else returnToGroups();
+      syncNote.textContent = "Recording removed from the active library";
+    } catch (error) {
+      deleteInProgress = false;
+      deleteCancelButton.disabled = false;
+      deleteCheckbox.disabled = false;
+      deleteButton.disabled = !deleteCheckbox.checked;
+      deleteStatus.textContent = error.message;
+    }
+  });
+}
 document.querySelector("#player-close").addEventListener("click", closePlayer);
 playerDialog.addEventListener("cancel", (event) => {
   event.preventDefault();
@@ -711,12 +838,16 @@ document.querySelector("#player-toggle").addEventListener("click", () => {
   }
 });
 playerVideo.addEventListener("play", () => {
-  document.querySelector("#player-toggle").textContent = "Pause";
-  document.querySelector("#player-toggle").setAttribute("aria-label", "Pause");
+  const button = document.querySelector("#player-toggle");
+  button.setAttribute("aria-label", "Pause");
+  button.title = "Pause";
+  button.innerHTML = '<svg class="player-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14" /></svg>';
 });
 playerVideo.addEventListener("pause", () => {
-  document.querySelector("#player-toggle").textContent = "Play";
-  document.querySelector("#player-toggle").setAttribute("aria-label", "Play");
+  const button = document.querySelector("#player-toggle");
+  button.setAttribute("aria-label", "Play");
+  button.title = "Play";
+  button.innerHTML = '<svg class="player-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 12 7-12 7z" /></svg>';
 });
 playerVideo.addEventListener("playing", () => {
   playerStatus.textContent = usingWasm
@@ -747,6 +878,12 @@ document.querySelector("#jump-back").addEventListener("click", () => {
 document.querySelector("#jump-forward").addEventListener("click", () => {
   seekTo(playbackPosition() + 30);
 });
+document.querySelector("#jump-back-ten-minutes").addEventListener("click", () => {
+  seekTo(playbackPosition() - 600);
+});
+document.querySelector("#jump-forward-ten-minutes").addEventListener("click", () => {
+  seekTo(playbackPosition() + 600);
+});
 skipAdButton.addEventListener("click", () => {
   const position = playbackPosition();
   const marker = commercialBreaks.find(
@@ -771,10 +908,44 @@ document.querySelector("#playback-speed").addEventListener("change", (event) => 
 document.querySelector("#subtitle-track").addEventListener("change", (event) => {
   selectSubtitle(event.currentTarget.value);
 });
+function updateFullscreenControls() {
+  const fullscreen = document.fullscreenElement === playerShell;
+  document.querySelector("#player-fullscreen").hidden = fullscreen;
+  document.querySelector("#player-exit-fullscreen").hidden = !fullscreen;
+  playerShell.classList.toggle("controls-visible", fullscreen);
+  window.clearTimeout(controlsHideTimer);
+  if (fullscreen) {
+    if (playerOverlay.contains(document.activeElement)) document.activeElement.blur();
+    revealFullscreenControls();
+  }
+}
+
+function revealFullscreenControls() {
+  if (document.fullscreenElement !== playerShell) return;
+  playerShell.classList.add("controls-visible");
+  window.clearTimeout(controlsHideTimer);
+  if (playerOverlay.contains(document.activeElement)) return;
+  controlsHideTimer = window.setTimeout(() => {
+    playerShell.classList.remove("controls-visible");
+  }, 2500);
+}
+
 document.querySelector("#player-fullscreen").addEventListener("click", () => {
-  if (document.fullscreenElement) document.exitFullscreen();
-  else playerVideo.requestFullscreen?.();
+  playerShell.requestFullscreen?.()
+    .then(updateFullscreenControls)
+    .catch((error) => { playerStatus.textContent = `Could not enter fullscreen: ${error.message}`; });
 });
+document.querySelector("#player-exit-fullscreen").addEventListener("click", () => {
+  if (document.fullscreenElement === playerShell) {
+    document.exitFullscreen().then(updateFullscreenControls);
+  }
+});
+document.addEventListener("fullscreenchange", updateFullscreenControls);
+playerShell.addEventListener("pointermove", revealFullscreenControls);
+playerShell.addEventListener("pointerdown", revealFullscreenControls);
+playerShell.addEventListener("touchstart", revealFullscreenControls, { passive: true });
+playerShell.addEventListener("keydown", revealFullscreenControls);
+playerShell.addEventListener("focusin", revealFullscreenControls);
 document.addEventListener("keydown", (event) => {
   if (playerDialog.open && !["INPUT", "SELECT", "BUTTON"].includes(document.activeElement.tagName)) {
     if (event.key === "ArrowLeft") {

@@ -57,6 +57,19 @@ def _active_recording(app: Flask, recorded_id: int) -> dict | None:
     )
 
 
+def _invalidate_recordings_cache(app: Flask) -> None:
+    cache_path = Path(app.config["MYTHTV_RECORDINGS_CACHE_PATH"])
+    lock_path = cache_path.with_suffix(f"{cache_path.suffix}.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with lock_path.open("a+") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            cache_path.unlink(missing_ok=True)
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
 def _recording_url(app: Flask, recorded_id: int) -> str:
     return f"{app.config['MYTHTV_BACKEND_URL']}/Content/GetRecording?RecordedId={recorded_id}"
 
@@ -327,6 +340,52 @@ def create_app() -> Flask:
             return jsonify(error="Program group not found"), 404
         matches.sort(key=lambda program: program.get("StartTime") or "")
         return jsonify(title=title, programs=matches, total=len(matches))
+
+    @app.delete("/api/recordings/<int:recorded_id>")
+    def delete_recording(recorded_id):
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or payload.get("confirmed") is not True:
+            return jsonify(error="Explicit confirmation is required"), 400
+        if not request.headers.get("X-Authenticated-User", "").strip():
+            return jsonify(error="An Apache-authenticated user is required"), 401
+
+        try:
+            program = _active_recording(app, recorded_id)
+        except (requests.RequestException, ValueError, OSError) as error:
+            app.logger.warning("MythTV delete lookup failed: %s", error)
+            return jsonify(error="MythTV backend is unavailable"), 502
+        if program is None:
+            return jsonify(error="Recording not found"), 404
+
+        params = {
+            "RecordedId": recorded_id,
+            "ChanId": (program.get("Channel") or {}).get("ChanId", 0),
+            "StartTime": program.get("StartTime", ""),
+            "ForceDelete": False,
+            "AllowRerecord": False,
+        }
+        try:
+            upstream = requests.post(
+                f"{app.config['MYTHTV_BACKEND_URL']}/Dvr/DeleteRecording",
+                json=params,
+                headers={"Accept": "application/json"},
+                timeout=app.config["MYTHTV_TIMEOUT"],
+            )
+            upstream.raise_for_status()
+            payload = upstream.json()
+            deleted = isinstance(payload, dict) and payload.get("bool") is True
+        except (requests.RequestException, ValueError) as error:
+            app.logger.warning("MythTV recording deletion failed: %s", error)
+            return jsonify(error="Could not delete recording from MythTV"), 502
+
+        if not deleted:
+            return jsonify(error="MythTV did not delete the recording"), 502
+
+        try:
+            _invalidate_recordings_cache(app)
+        except OSError as error:
+            app.logger.warning("Could not invalidate recordings cache: %s", error)
+        return jsonify(deleted=True)
 
     @app.get("/api/artwork")
     def artwork():

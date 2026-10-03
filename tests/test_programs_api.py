@@ -34,6 +34,16 @@ def test_home_uses_forwarded_prefix_for_assets_and_navigation():
     assert b'src="/mythtv-web/static/build/library.js"' in response.data
 
 
+def test_home_includes_accessible_fullscreen_playback_controls():
+    response = create_app().test_client().get("/")
+
+    assert response.status_code == 200
+    assert b'id="jump-back-ten-minutes"' in response.data
+    assert b'id="jump-forward-ten-minutes"' in response.data
+    assert b'id="player-exit-fullscreen"' in response.data
+    assert b'aria-label="Exit fullscreen"' in response.data
+
+
 def test_program_list_is_proxied_with_pagination(monkeypatch):
     captured = {}
 

@@ -18,6 +18,7 @@ This project is a Python web server that will provide a browser-based interface 
 10. Capture Gunicorn access and error logs in `mythtv-web-YYYY-MM-DDT000000.log` files named for the start of each local-day period, rotate at local midnight, and retain no more than 10 period files including the active file.
 11. Keep MythTV service calls server-side in Flask. Configure the local backend with `MYTHTV_BACKEND_URL`; do not expose MythTV service endpoints directly to browsers.
 12. Group recorded programs by title and show every recording in a selected group, consistent with MythFrontend's recordings workflow.
+13. Require an Apache-authenticated user identity and explicit confirmation for destructive recording actions; never force-delete recordings by default.
 
 ## Development Guidance
 

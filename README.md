@@ -93,7 +93,7 @@ Include the snippet inside both the HTTP and HTTPS `<VirtualHost>` blocks for yo
 Include /etc/apache2/conf-available/mythtv-web.conf
 ```
 
-The Basic Auth rule is scoped to the backend proxy target and sets `Satisfy all` to prevent a broad legacy proxy allowlist from bypassing the login. The example assumes Apache and Flask run on the same host. Keep the Flask listener on `127.0.0.1:6555`; Apache should be the public entry point.
+The Basic Auth rule is scoped to the backend proxy target and sets `Satisfy all` to prevent a broad legacy proxy allowlist from bypassing the login. Apache overwrites `X-Authenticated-User` with the authenticated account name; Flask requires this proxy-supplied identity and an explicit confirmation for recording deletion. The deletion request uses MythTV's non-forced delete options. The example assumes Apache and Flask run on the same host. Keep the Flask listener on `127.0.0.1:6555`; Apache should be the public entry point.
 
 Start or restart the Flask service, then validate and reload Apache:
 
