@@ -4,18 +4,19 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#17211d">
+    <meta name="app-root" content="{{ request.script_root }}">
     <title>Recordings | MythTV</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='library.css') }}">
     <script src="{{ url_for('static', filename='library.js') }}" defer></script>
   </head>
   <body>
     <header class="topbar">
-      <a class="brand" href="/" aria-label="MythTV home">
+      <a class="brand" href="{{ request.script_root or '' }}/" aria-label="MythTV home">
         <span class="brand-mark" aria-hidden="true">M</span>
         <span>MYTHTV</span>
       </a>
       <nav aria-label="Main navigation">
-        <a class="nav-link active" href="/" aria-current="page">Recordings</a>
+        <a class="nav-link active" href="{{ request.script_root or '' }}/" aria-current="page">Recordings</a>
       </nav>
       <div class="system-state"><span></span> Local library</div>
     </header>
@@ -52,6 +53,51 @@
         <p id="empty-description">Try another search or change the watched filter.</p>
       </div>
     </main>
+
+    <dialog class="player-dialog" id="player-dialog" aria-labelledby="player-title">
+      <section class="player-shell">
+        <header class="player-header">
+          <div>
+            <p class="eyebrow">NOW PLAYING</p>
+            <h2 id="player-title">Recording</h2>
+            <p class="player-subtitle" id="player-subtitle"></p>
+          </div>
+          <button class="player-close" id="player-close" type="button" aria-label="Close player" title="Close player">×</button>
+        </header>
+        <video id="recording-video" playsinline preload="metadata"></video>
+        <p class="player-status" id="player-status" aria-live="polite">Loading recording…</p>
+        <div class="player-seek-row">
+          <span id="playback-elapsed">0:00</span>
+          <input id="playback-seek" type="range" min="0" max="1000" value="0" aria-label="Seek through recording">
+          <span id="playback-duration">0:00</span>
+        </div>
+        <div class="player-toolbar" role="group" aria-label="Playback controls">
+          <button class="player-button" id="player-toggle" type="button" aria-label="Play" title="Play or pause">Play</button>
+          <button class="player-button" id="jump-back" type="button" title="Jump back 10 seconds">−10s</button>
+          <button class="player-button" id="jump-forward" type="button" title="Jump forward 30 seconds">+30s</button>
+          <button class="player-button" id="skip-ad" type="button" title="Skip to the end of the next commercial break" disabled>Skip ad</button>
+          <label class="player-select-label" for="playback-speed">Speed</label>
+          <select class="player-select" id="playback-speed" aria-label="Playback speed">
+            <option value="0.75">0.75×</option>
+            <option value="1" selected>1×</option>
+            <option value="1.25">1.25×</option>
+            <option value="1.5">1.5×</option>
+            <option value="1.75">1.75×</option>
+            <option value="2">2×</option>
+          </select>
+          <label class="player-select-label" for="subtitle-track">Subtitles</label>
+          <select class="player-select" id="subtitle-track" aria-label="Subtitle track">
+            <option value="">Off</option>
+          </select>
+          <label class="smart-skip-control"><input id="smart-skip" type="checkbox" checked> Smart skip</label>
+          <button class="player-button" id="player-fullscreen" type="button" aria-label="Enter fullscreen" title="Toggle fullscreen">Fullscreen</button>
+        </div>
+        <details class="player-details" id="player-details">
+          <summary>Program details</summary>
+          <p id="player-description"></p>
+        </details>
+      </section>
+    </dialog>
 
     <footer class="page-footer">
       <span>MYTHTV WEB</span>

@@ -53,7 +53,7 @@ start_server() {
 
     for attempt in {1..50}; do
         if pid="$(read_pid)" && kill -0 "$pid" 2>/dev/null && pid_is_managed "$pid"; then
-            printf 'MythTV web server started (pid %s, listening on 0.0.0.0:5000).\n' "$pid"
+            printf 'MythTV web server started (pid %s, listening on 127.0.0.1:6555).\n' "$pid"
             return 0
         fi
         if ! kill -0 "$launch_pid" 2>/dev/null; then

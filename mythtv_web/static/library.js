@@ -7,11 +7,31 @@ let activeFilter = "all";
 let loading = false;
 
 const grid = document.querySelector("#program-grid");
+const appRoot = document.querySelector('meta[name="app-root"]')?.content.replace(/\/$/, "") || "";
 const searchInput = document.querySelector("#search");
 const emptyState = document.querySelector("#empty-state");
 const syncNote = document.querySelector("#sync-note");
 const resultNote = document.querySelector("#result-note");
 const backButton = document.querySelector("#back-to-groups");
+const playerDialog = document.querySelector("#player-dialog");
+const playerVideo = document.querySelector("#recording-video");
+const playerStatus = document.querySelector("#player-status");
+const playbackSeek = document.querySelector("#playback-seek");
+const smartSkip = document.querySelector("#smart-skip");
+const skipAdButton = document.querySelector("#skip-ad");
+let activeRecording = null;
+let playbackInfo = null;
+let commercialBreaks = [];
+let usingTranscode = false;
+let transcodeBase = 0;
+let transcodeToken = null;
+let subtitleElement = null;
+let lastSavedPosition = -1;
+let smartSkipBusy = false;
+
+function appPath(path) {
+  return `${appRoot}${path}`;
+}
 
 function formatDate(value) {
   if (!value) return "Date unknown";
@@ -39,6 +59,250 @@ function formatSize(bytes) {
   return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
+function formatPlaybackTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const wholeSeconds = Math.floor(seconds);
+  const hours = Math.floor(wholeSeconds / 3600);
+  const minutes = Math.floor((wholeSeconds % 3600) / 60);
+  const remainder = wholeSeconds % 60;
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
+    : `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+function playbackDuration(program) {
+  const start = Date.parse(program.StartTime || "");
+  const end = Date.parse(program.EndTime || "");
+  return Number.isFinite(start) && Number.isFinite(end) && end > start
+    ? (end - start) / 1000
+    : 0;
+}
+
+function playbackPosition() {
+  return usingTranscode ? transcodeBase + playerVideo.currentTime : playerVideo.currentTime;
+}
+
+function seekTo(seconds) {
+  const duration = playbackDuration(activeRecording || {});
+  const position = Math.max(0, Math.min(seconds, duration || Number.MAX_SAFE_INTEGER));
+  if (usingTranscode) {
+    startTranscode(position);
+  } else {
+    playerVideo.currentTime = position;
+  }
+}
+
+function secondsFromMarker(value) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric / 1000;
+  const parts = String(value || "").split(":").map(Number);
+  if (parts.some((part) => !Number.isFinite(part))) return NaN;
+  return parts.reduce((total, part) => total * 60 + part, 0);
+}
+
+function updatePlaybackProgress() {
+  const position = playbackPosition();
+  const duration = playbackDuration(activeRecording || {}) || playerVideo.duration || 0;
+  document.querySelector("#playback-elapsed").textContent = formatPlaybackTime(position);
+  document.querySelector("#playback-duration").textContent = formatPlaybackTime(duration);
+  playbackSeek.value = duration > 0 ? String(Math.round((position / duration) * 1000)) : "0";
+  if (duration > 0 && Math.abs(position - lastSavedPosition) >= 15) {
+    savePlaybackPosition();
+  }
+}
+
+async function savePlaybackPosition() {
+  if (!activeRecording) return;
+  const position = playbackPosition();
+  if (!Number.isFinite(position) || position < 0) return;
+  lastSavedPosition = position;
+  try {
+    await fetch(appPath(`/api/playback/${activeRecording.Recording.RecordedId}/position`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ position }),
+    });
+  } catch {
+    // Resume position is best-effort; playback should continue if MythTV is offline.
+  }
+}
+
+async function cancelTranscode() {
+  const token = transcodeToken;
+  if (!token || !activeRecording) return;
+  transcodeToken = null;
+  const recordedId = activeRecording.Recording.RecordedId;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const response = await fetch(
+        appPath(`/api/playback/${recordedId}/transcode/cancel`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+          keepalive: true,
+        },
+      );
+      if (response.ok || response.status !== 404) return;
+    } catch {
+      return;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+  }
+}
+
+function startTranscode(seconds = 0) {
+  cancelTranscode();
+  usingTranscode = true;
+  transcodeBase = seconds;
+  const playbackRate = Number(document.querySelector("#playback-speed").value) || 1;
+  transcodeToken = crypto.randomUUID().replace(/-/g, "");
+  playerStatus.textContent = "Preparing a browser-compatible stream…";
+  playerVideo.addEventListener("loadedmetadata", function restorePlaybackRate() {
+    playerVideo.removeEventListener("loadedmetadata", restorePlaybackRate);
+    playerVideo.playbackRate = playbackRate;
+    if ("preservesPitch" in playerVideo) playerVideo.preservesPitch = true;
+  });
+  playerVideo.src = appPath(`/api/playback/${activeRecording.Recording.RecordedId}/transcode?start=${encodeURIComponent(seconds)}&token=${transcodeToken}`);
+  playerVideo.load();
+  playerVideo.play().catch(() => {
+    playerStatus.textContent = "Stream ready. Press Play to begin.";
+  });
+}
+
+function handleVideoError() {
+  if (!activeRecording) return;
+  if (!usingTranscode) {
+    startTranscode(playbackPosition());
+  } else {
+    playerStatus.textContent = "This recording could not be decoded by the browser.";
+  }
+}
+
+async function selectSubtitle(streamIndex) {
+  subtitleElement?.remove();
+  subtitleElement = null;
+  if (streamIndex === "" || !activeRecording) return;
+  const trackInfo = playbackInfo.media.subtitles.find(
+    (track) => String(track.index) === streamIndex,
+  );
+  if (!trackInfo) return;
+  const track = document.createElement("track");
+  track.kind = "subtitles";
+  track.label = trackInfo.title || (
+    trackInfo.language && trackInfo.language !== "und"
+      ? trackInfo.language
+      : `Track ${streamIndex}`
+  );
+  track.srclang = /^[a-z]{2,3}$/i.test(trackInfo.language) ? trackInfo.language : "und";
+  track.src = appPath(`/api/playback/${activeRecording.Recording.RecordedId}/subtitles/${streamIndex}`);
+  track.addEventListener("load", () => {
+    track.track.mode = "showing";
+    playerStatus.textContent = `Subtitles: ${track.label}`;
+  });
+  playerVideo.append(track);
+  subtitleElement = track;
+  track.track.mode = "showing";
+}
+
+async function openPlayer(program) {
+  const recordedId = program.Recording?.RecordedId;
+  if (!recordedId) return;
+  activeRecording = program;
+  playbackInfo = null;
+  commercialBreaks = [];
+  usingTranscode = false;
+  transcodeBase = 0;
+  lastSavedPosition = -1;
+  document.querySelector("#player-title").textContent = program.SubTitle || program.Title;
+  document.querySelector("#player-subtitle").textContent = [
+    program.Title,
+    episodeLabel(program),
+    formatDate(program.StartTime),
+  ].filter(Boolean).join(" · ");
+  document.querySelector("#player-description").textContent =
+    program.Description || "No program description is available.";
+  document.querySelector("#subtitle-track").replaceChildren(new Option("Off", ""));
+  document.querySelector("#player-details").open = false;
+  playerStatus.textContent = "Loading MythTV playback details…";
+  playerDialog.showModal();
+
+  try {
+    const response = await fetch(appPath(`/api/playback/${recordedId}`));
+    if (!response.ok) throw new Error(`Request failed (${response.status})`);
+    playbackInfo = await response.json();
+    commercialBreaks = playbackInfo.comm_breaks.map((marker) => ({
+      start: secondsFromMarker(marker.Start ?? marker.start),
+      end: secondsFromMarker(marker.End ?? marker.end),
+    })).filter((marker) => Number.isFinite(marker.start) && Number.isFinite(marker.end) && marker.end > marker.start);
+    skipAdButton.disabled = commercialBreaks.length === 0;
+    const subtitles = document.querySelector("#subtitle-track");
+    playbackInfo.media.subtitles.forEach((track) => {
+      const label = track.title || (
+        track.language && track.language !== "und"
+          ? track.language
+          : `Track ${track.index}`
+      );
+      const option = new Option(
+        label,
+        String(track.index),
+      );
+      subtitles.add(option);
+    });
+    const resumeMilliseconds = playbackInfo.last_position || playbackInfo.bookmark || 0;
+    const resumePosition = Math.max(0, resumeMilliseconds / 1000);
+    const requiresTranscode = ["hevc", "eac3"].some((codec) =>
+      [playbackInfo.media.video_codec, playbackInfo.media.audio_codec].includes(codec),
+    );
+    if (requiresTranscode) {
+      startTranscode(resumePosition);
+    } else {
+      playerVideo.src = appPath(`/api/playback/${recordedId}/stream`);
+      playerVideo.load();
+      playerVideo.addEventListener("loadedmetadata", function restorePosition() {
+        playerVideo.removeEventListener("loadedmetadata", restorePosition);
+        if (resumePosition > 5) playerVideo.currentTime = resumePosition;
+        updatePlaybackProgress();
+      });
+    }
+    if (!requiresTranscode) playerVideo.play().then(() => {
+      playerStatus.textContent = commercialBreaks.length
+        ? `${commercialBreaks.length} commercial break markers loaded`
+        : "No commercial break markers are available for this recording.";
+    }).catch(() => {
+      playerStatus.textContent = "Stream ready. Press Play to begin.";
+    });
+  } catch (error) {
+    playerStatus.textContent = error.message;
+  }
+}
+
+function closePlayer() {
+  if (!activeRecording) return;
+  savePlaybackPosition();
+  cancelTranscode();
+  playerVideo.pause();
+  playerVideo.removeAttribute("src");
+  playerVideo.load();
+  subtitleElement?.remove();
+  subtitleElement = null;
+  activeRecording = null;
+  playbackInfo = null;
+  commercialBreaks = [];
+  usingTranscode = false;
+  if (playerDialog.open) playerDialog.close();
+}
+
+function episodeLabel(program) {
+  const season = Number(program.Season);
+  const episode = Number(program.Episode);
+  if (season > 0 && episode > 0) {
+    return `S${String(season).padStart(2, "0")} E${String(episode).padStart(2, "0")}`;
+  }
+  const match = (program.SubTitle || "").match(/\bS(\d{1,2})E(\d{1,2})\b/i);
+  return match ? `S${match[1].padStart(2, "0")} E${match[2].padStart(2, "0")}` : "";
+}
+
 function isWatched(program) {
   return (program.ProgramFlagNames || "").split("|").includes("WATCHED");
 }
@@ -48,11 +312,19 @@ function artworkUrl(program) {
     (item) => item.Type === "coverart" || item.Type === "fanart",
   );
   return artwork?.URL
-    ? `/api/artwork?url=${encodeURIComponent(artwork.URL)}`
+    ? appPath(`/api/artwork?url=${encodeURIComponent(artwork.URL)}`)
     : "";
 }
 
-function makePoster(sourceUrl, badgeText = "") {
+function previewUrl(program) {
+  const recordedId = program.Recording?.RecordedId;
+  return Number.isInteger(recordedId) && recordedId > 0
+    ? appPath(`/api/preview?recorded_id=${recordedId}`)
+    : "";
+}
+
+function makePoster(sourceUrl, badgeText = "", fallbackUrl = "") {
+  sourceUrl = sourceUrl || "";
   const poster = document.createElement("div");
   poster.className = "poster";
   const fallback = document.createElement("span");
@@ -60,18 +332,27 @@ function makePoster(sourceUrl, badgeText = "") {
   fallback.textContent = "M";
   poster.append(fallback);
 
-  if (sourceUrl) {
+  if (sourceUrl || fallbackUrl) {
     const imageSource = sourceUrl.startsWith("/api/artwork?")
-      ? sourceUrl
+      ? appPath(sourceUrl)
       : sourceUrl.startsWith("/Content/GetImageFile?")
-        ? `/api/artwork?url=${encodeURIComponent(sourceUrl)}`
-        : "";
+        ? appPath(`/api/artwork?url=${encodeURIComponent(sourceUrl)}`)
+        : fallbackUrl
+          ? appPath(fallbackUrl)
+          : "";
     if (imageSource) {
       const image = document.createElement("img");
       image.src = imageSource;
       image.alt = "";
       image.loading = "lazy";
       image.addEventListener("load", () => fallback.remove(), { once: true });
+      image.addEventListener("error", () => {
+        if (fallbackUrl && image.src !== new URL(fallbackUrl, location.href).href) {
+          image.src = fallbackUrl;
+        } else {
+          image.remove();
+        }
+      });
       poster.prepend(image);
     }
   }
@@ -111,7 +392,7 @@ function makeGroupCard(group, index) {
     `Open ${group.title}, ${group.recording_count} ${group.recording_count === 1 ? "recording" : "recordings"}`,
   );
   const badge = group.watched_count === group.recording_count ? "Watched" : "";
-  openButton.append(makePoster(group.artwork_url, badge));
+  openButton.append(makePoster(group.artwork_url, badge, group.preview_url));
 
   const info = document.createElement("div");
   info.className = "program-info";
@@ -144,6 +425,7 @@ function makeProgramCard(program, index) {
   const poster = makePoster(
     artworkUrl(program) || selectedGroupArtwork,
     isWatched(program) ? "Watched" : "",
+    previewUrl(program),
   );
 
   const info = document.createElement("div");
@@ -153,10 +435,14 @@ function makeProgramCard(program, index) {
   channel.textContent = program.Channel?.ChannelName || program.Category || "Recording";
   const title = document.createElement("h2");
   title.className = "program-title";
-  title.textContent = program.Title || "Untitled recording";
+  title.textContent = program.SubTitle || program.Title || "Untitled recording";
   const subtitle = document.createElement("p");
   subtitle.className = "program-subtitle";
-  subtitle.textContent = program.SubTitle || program.Category || " ";
+  const episode = episodeLabel(program);
+  subtitle.textContent = episode || program.Category || " ";
+  const description = document.createElement("p");
+  description.className = "program-description";
+  description.textContent = program.Description || "";
   const meta = document.createElement("div");
   meta.className = "program-meta";
   const date = document.createElement("time");
@@ -166,8 +452,14 @@ function makeProgramCard(program, index) {
   size.className = "program-size";
   size.textContent = formatSize(program.FileSize);
   meta.append(date, size);
-  info.append(channel, title, subtitle, meta);
-  card.append(poster, info);
+  info.append(channel, title, subtitle, description, meta);
+  const playButton = document.createElement("button");
+  playButton.className = "recording-play";
+  playButton.type = "button";
+  playButton.textContent = "Play";
+  playButton.setAttribute("aria-label", `Play ${program.SubTitle || program.Title}`);
+  playButton.addEventListener("click", () => openPlayer(program));
+  card.append(poster, info, playButton);
   return card;
 }
 
@@ -216,6 +508,7 @@ function renderGroupPrograms() {
     const searchable = [
       program.Title,
       program.SubTitle,
+      program.Description,
       program.Category,
       program.Channel?.ChannelName,
     ]
@@ -254,7 +547,7 @@ async function loadGroups() {
   syncNote.textContent = "Loading program groups…";
 
   try {
-    const response = await fetch("/api/program-groups");
+    const response = await fetch(appPath("/api/program-groups"));
     if (!response.ok) throw new Error(`Request failed (${response.status})`);
     const result = await response.json();
     programGroups = result.groups;
@@ -281,7 +574,7 @@ async function loadGroup(group) {
   syncNote.textContent = "Loading recordings…";
   try {
     const response = await fetch(
-      `/api/program-group?title=${encodeURIComponent(group.title)}`,
+      appPath(`/api/program-group?title=${encodeURIComponent(group.title)}`),
     );
     if (!response.ok) throw new Error(`Request failed (${response.status})`);
     const result = await response.json();
@@ -321,8 +614,96 @@ document.querySelectorAll(".filter-button").forEach((button) => {
   });
 });
 backButton.addEventListener("click", returnToGroups);
+document.querySelector("#player-close").addEventListener("click", closePlayer);
+playerDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closePlayer();
+});
+document.querySelector("#player-toggle").addEventListener("click", () => {
+  if (playerVideo.paused) {
+    playerVideo.play().catch(() => {
+      playerStatus.textContent = "Unable to start playback.";
+    });
+  } else {
+    playerVideo.pause();
+  }
+});
+playerVideo.addEventListener("play", () => {
+  document.querySelector("#player-toggle").textContent = "Pause";
+  document.querySelector("#player-toggle").setAttribute("aria-label", "Pause");
+});
+playerVideo.addEventListener("pause", () => {
+  document.querySelector("#player-toggle").textContent = "Play";
+  document.querySelector("#player-toggle").setAttribute("aria-label", "Play");
+});
+playerVideo.addEventListener("playing", () => {
+  playerStatus.textContent = usingTranscode
+    ? "Playing a browser-compatible transcode"
+    : "Playing MythTV recording";
+});
+playerVideo.addEventListener("error", handleVideoError);
+playerVideo.addEventListener("timeupdate", () => {
+  updatePlaybackProgress();
+  if (!smartSkip.checked || smartSkipBusy) return;
+  const position = playbackPosition();
+  const marker = commercialBreaks.find(
+    (item) => position >= item.start && position < item.end,
+  );
+  if (marker) {
+    smartSkipBusy = true;
+    playerStatus.textContent = "Smart skip: commercial break skipped.";
+    seekTo(marker.end + 0.25);
+    window.setTimeout(() => { smartSkipBusy = false; }, 1500);
+  }
+});
+playerVideo.addEventListener("ended", savePlaybackPosition);
+document.querySelector("#jump-back").addEventListener("click", () => {
+  seekTo(playbackPosition() - 10);
+});
+document.querySelector("#jump-forward").addEventListener("click", () => {
+  seekTo(playbackPosition() + 30);
+});
+skipAdButton.addEventListener("click", () => {
+  const position = playbackPosition();
+  const marker = commercialBreaks.find(
+    (item) => item.end > position && item.start < position + 120,
+  );
+  if (marker) seekTo(marker.end + 0.25);
+});
+playbackSeek.addEventListener("input", () => {
+  const duration = playbackDuration(activeRecording || {}) || playerVideo.duration || 0;
+  document.querySelector("#playback-elapsed").textContent = formatPlaybackTime(
+    (Number(playbackSeek.value) / 1000) * duration,
+  );
+});
+playbackSeek.addEventListener("change", () => {
+  const duration = playbackDuration(activeRecording || {}) || playerVideo.duration || 0;
+  seekTo((Number(playbackSeek.value) / 1000) * duration);
+});
+document.querySelector("#playback-speed").addEventListener("change", (event) => {
+  playerVideo.playbackRate = Number(event.currentTarget.value);
+  if ("preservesPitch" in playerVideo) playerVideo.preservesPitch = true;
+});
+document.querySelector("#subtitle-track").addEventListener("change", (event) => {
+  selectSubtitle(event.currentTarget.value);
+});
+document.querySelector("#player-fullscreen").addEventListener("click", () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else playerVideo.requestFullscreen?.();
+});
 document.addEventListener("keydown", (event) => {
-  if (event.key === "/" && document.activeElement !== searchInput) {
+  if (playerDialog.open && !["INPUT", "SELECT", "BUTTON"].includes(document.activeElement.tagName)) {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      seekTo(playbackPosition() - 10);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      seekTo(playbackPosition() + 30);
+    } else if (event.key === " ") {
+      event.preventDefault();
+      document.querySelector("#player-toggle").click();
+    }
+  } else if (event.key === "/" && document.activeElement !== searchInput) {
     event.preventDefault();
     searchInput.focus();
   } else if (event.key === "Escape" && selectedGroupTitle) {

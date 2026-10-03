@@ -19,6 +19,10 @@ python -m pip install -r requirements-dev.txt
 
 The home page groups recordings by program title, like MythFrontend. Selecting a group shows all recordings in that group. Flask loads the full recorded-program list from MythTV's `Dvr/GetRecordedList` service and caches it under `.run/` for two minutes so every Gunicorn worker can serve complete groups consistently. The first group load can take several seconds for a large library. Flask also proxies cover art locally, so the browser does not connect to MythTV directly. The default backend URL is `http://127.0.0.1:6544`; set `MYTHTV_BACKEND_URL` if the local backend uses another address. Search and watched-state filters are available in both views.
 
+## Browser playback
+
+Recordings play through MythTV's `Content/GetRecording` service proxied by Flask, preserving byte-range requests for seeking. The player uses MythTV commercial-break markers for smart/advert skipping and stores its resume position through `Dvr/SetLastPlayPos`. Browser-native playback is used when possible; recordings with HEVC or E-AC-3 audio are transcoded to H.264/AAC on demand. Embedded subtitle tracks are extracted as WebVTT when selected. Install `ffmpeg` and `ffprobe` on the server for codec fallback and embedded subtitles. Commercial skipping is available only when MythTV has commercial-break markers for that recording. Browser playback is limited to codecs the browser can decode or that FFmpeg can transcode.
+
 ## Quality checks
 
 Run these checks before committing Python changes:
@@ -34,13 +38,13 @@ pytest
 For local development:
 
 ```sh
-flask --app 'mythtv_web:create_app' run --host 0.0.0.0 --port 5000
+flask --app 'mythtv_web:create_app' run --host 127.0.0.1 --port 6555
 ```
 
 For the Apache-facing server process:
 
 ```sh
-gunicorn --workers 2 --bind 0.0.0.0:5000 'mythtv_web:create_app()'
+gunicorn --workers 2 --worker-class gthread --threads 8 --timeout 120 --bind 127.0.0.1:6555 'mythtv_web:create_app()'
 ```
 
 The landing page is at `/`; `/healthz` returns a small JSON health response. Stop the process with Ctrl+C when running it in the foreground.
@@ -60,19 +64,34 @@ The launcher requires dependencies to be installed in `.venv/`. It only stops th
 
 ## Apache reverse proxy
 
-Enable Apache's `proxy`, `proxy_http`, and `auth_basic` modules as needed. A virtual host can proxy to the service while requiring authentication, for example:
+The example Apache snippet is [`config/apache/mythtv-web.conf`](config/apache/mythtv-web.conf). It serves the app at `https://mythtv.example.com/mythtv-web/`, redirects HTTP to HTTPS, and requires Apache Basic Auth. Replace `mythtv.example.com` in the snippet with the canonical DNS name covered by your HTTPS certificate. The Flask/Gunicorn service binds to loopback on port 6555; Apache forwards the `/mythtv-web/` prefix so the page's static files and API requests use the same path.
 
-```apache
-<Location />
-    AuthType Basic
-    AuthName "MythTV"
-    AuthUserFile /etc/apache2/mythtv.htpasswd
-    Require valid-user
-</Location>
+On Debian or Ubuntu, install the snippet and create the password file as root:
 
-ProxyPreserveHost On
-ProxyPass        / http://127.0.0.1:5000/
-ProxyPassReverse / http://127.0.0.1:5000/
+```sh
+sudo a2enmod access_compat proxy proxy_http auth_basic headers rewrite
+sudo install -o root -g root -m 644 config/apache/mythtv-web.conf /etc/apache2/conf-available/mythtv-web.conf
+sudo htpasswd -cB /etc/apache2/mythtv-web.htpasswd mythtv-user
+sudo chown root:www-data /etc/apache2/mythtv-web.htpasswd
+sudo chmod 640 /etc/apache2/mythtv-web.htpasswd
 ```
 
-Use HTTPS at Apache when credentials cross an untrusted network. Although Gunicorn binds to `0.0.0.0` as requested, port 5000 must not be exposed to untrusted clients: restrict it with the host firewall or network policy so only Apache and trusted administration hosts can connect. Apache should be the only public entry point and should enforce authentication before proxying.
+`htpasswd` prompts for the password without putting it in shell history. The `-c` option creates a new file and must only be used for the first account; add later accounts with `sudo htpasswd -B /etc/apache2/mythtv-web.htpasswd another-user` so existing accounts are retained.
+
+Include the snippet inside both the HTTP and HTTPS `<VirtualHost>` blocks for your chosen hostname in the Apache site configuration:
+
+```apache
+Include /etc/apache2/conf-available/mythtv-web.conf
+```
+
+The Basic Auth rule is scoped to the backend proxy target and sets `Satisfy all` to prevent a broad legacy proxy allowlist from bypassing the login. The example assumes Apache and Flask run on the same host. Keep the Flask listener on `127.0.0.1:6555`; Apache should be the public entry point.
+
+Start or restart the Flask service, then validate and reload Apache:
+
+```sh
+./scripts/mythtv-web.sh restart
+sudo apache2ctl -t
+sudo systemctl reload apache2
+```
+
+An unauthenticated request should return `401`; authenticated requests should load the homepage and its `/mythtv-web/static/` assets. Use HTTPS whenever credentials cross a network.
