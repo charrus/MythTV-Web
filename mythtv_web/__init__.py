@@ -154,7 +154,7 @@ def create_app() -> Flask:
                 group["latest_start"] = latest_start
 
         sorted_groups = sorted(
-            groups.values(), key=lambda group: group["latest_start"], reverse=True
+            groups.values(), key=lambda group: group["title"].casefold()
         )
         return jsonify(groups=sorted_groups, total=len(programs))
 
@@ -177,6 +177,7 @@ def create_app() -> Flask:
         ]
         if not matches:
             return jsonify(error="Program group not found"), 404
+        matches.sort(key=lambda program: program.get("StartTime") or "")
         return jsonify(title=title, programs=matches, total=len(matches))
 
     @app.get("/api/artwork")

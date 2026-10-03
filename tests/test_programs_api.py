@@ -124,6 +124,10 @@ def test_program_groups_aggregate_titles_and_reuse_full_list_cache(
 
     assert groups_response.status_code == 200
     assert groups_response.json["total"] == 3
+    assert [group["title"] for group in groups_response.json["groups"]] == [
+        "Example series",
+        "One-off film",
+    ]
     series_group = next(
         group
         for group in groups_response.json["groups"]
@@ -134,8 +138,8 @@ def test_program_groups_aggregate_titles_and_reuse_full_list_cache(
     assert series_group["artwork_url"].startswith("/Content/GetImageFile")
     assert detail_response.status_code == 200
     assert [program["SubTitle"] for program in detail_response.json["programs"]] == [
-        "Episode two",
         "Episode one",
+        "Episode two",
     ]
     assert len(requests_made) == 1
     assert requests_made[0][1]["params"]["Count"] == 5000

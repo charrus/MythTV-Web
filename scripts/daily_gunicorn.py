@@ -13,7 +13,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
-LOG_PATTERN = re.compile(r"gunicorn-\d{4}-\d{2}-\d{2}T000000\.log")
+LOG_PATTERN = re.compile(r"mythtv-web-\d{4}-\d{2}-\d{2}T000000\.log")
+LEGACY_LOG_PATTERN = re.compile(r"gunicorn-(\d{4}-\d{2}-\d{2}T000000)\.log")
 
 
 def seconds_until_next_midnight(now: datetime | None = None) -> float:
@@ -49,14 +50,25 @@ class DailyLogWriter:
     @staticmethod
     def _path_for(moment: datetime, directory: Path) -> Path:
         period_start = moment.replace(hour=0, minute=0, second=0, microsecond=0)
-        return directory / f"gunicorn-{period_start:%Y-%m-%dT%H%M%S}.log"
+        return directory / f"mythtv-web-{period_start:%Y-%m-%dT%H%M%S}.log"
 
     def _migrate_legacy_log(self) -> None:
+        for legacy_path in sorted(self.directory.glob("gunicorn-*.log")):
+            match = LEGACY_LOG_PATTERN.fullmatch(legacy_path.name)
+            if match is None:
+                continue
+            target_path = self.directory / f"mythtv-web-{match.group(1)}.log"
+            self._move_or_append_log(legacy_path, target_path)
+
         legacy_path = self.directory / "gunicorn.log"
         if not legacy_path.exists():
             return
 
         target_path = self._path_for(self.clock(), self.directory)
+        self._move_or_append_log(legacy_path, target_path)
+
+    @staticmethod
+    def _move_or_append_log(legacy_path: Path, target_path: Path) -> None:
         if target_path.exists():
             with target_path.open("ab") as target, legacy_path.open("rb") as legacy:
                 target.write(legacy.read())
@@ -79,7 +91,7 @@ class DailyLogWriter:
     def _prune_old_logs(self) -> None:
         log_files = sorted(
             path
-            for path in self.directory.glob("gunicorn-*.log")
+            for path in self.directory.glob("mythtv-web-*.log")
             if LOG_PATTERN.fullmatch(path.name)
         )
         for old_path in log_files[: -self.keep]:

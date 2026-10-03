@@ -15,7 +15,7 @@ This project is a Python web server that will provide a browser-based interface 
 7. Preserve the existing `/` landing route and `/healthz` health endpoint unless a change is intentionally required and documented.
 8. Keep this file updated as project requirements, architecture, and operational assumptions evolve.
 9. Manage the background Gunicorn service with `scripts/mythtv-web.sh`, which supports `start`, `stop`, `restart`, and `status`.
-10. Capture Gunicorn access and error logs in files named for the start of each local-day period, rotate at local midnight, and retain no more than 10 period files including the active file.
+10. Capture Gunicorn access and error logs in `mythtv-web-YYYY-MM-DDT000000.log` files named for the start of each local-day period, rotate at local midnight, and retain no more than 10 period files including the active file.
 11. Keep MythTV service calls server-side in Flask. Configure the local backend with `MYTHTV_BACKEND_URL`; do not expose MythTV service endpoints directly to browsers.
 12. Group recorded programs by title and show every recording in a selected group, consistent with MythFrontend's recordings workflow.
 

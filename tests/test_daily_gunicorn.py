@@ -34,8 +34,8 @@ class DailyLogWriterTests(unittest.TestCase):
             writer.write(b"after midnight\n")
             writer.close()
 
-            first_log = directory / "gunicorn-2026-10-03T000000.log"
-            second_log = directory / "gunicorn-2026-10-04T000000.log"
+            first_log = directory / "mythtv-web-2026-10-03T000000.log"
+            second_log = directory / "mythtv-web-2026-10-04T000000.log"
             self.assertEqual(first_log.read_bytes(), b"before midnight\n")
             self.assertEqual(second_log.read_bytes(), b"after midnight\n")
 
@@ -44,15 +44,15 @@ class DailyLogWriterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             directory = Path(temporary_directory)
             for day in range(1, 12):
-                (directory / f"gunicorn-2026-10-{day:02d}T000000.log").touch()
+                (directory / f"mythtv-web-2026-10-{day:02d}T000000.log").touch()
 
             writer = DailyLogWriter(directory, keep=10, clock=lambda: current_time[0])
             writer.close()
 
-            log_files = sorted(directory.glob("gunicorn-*.log"))
+            log_files = sorted(directory.glob("mythtv-web-*.log"))
             self.assertEqual(len(log_files), 10)
-            self.assertEqual(log_files[0].name, "gunicorn-2026-10-03T000000.log")
-            self.assertEqual(log_files[-1].name, "gunicorn-2026-10-12T000000.log")
+            self.assertEqual(log_files[0].name, "mythtv-web-2026-10-03T000000.log")
+            self.assertEqual(log_files[-1].name, "mythtv-web-2026-10-12T000000.log")
 
     def test_migrates_existing_fixed_log_into_current_period(self):
         current_time = datetime(2026, 10, 3, 12, 0, 0)
@@ -64,8 +64,22 @@ class DailyLogWriterTests(unittest.TestCase):
             writer = DailyLogWriter(directory, clock=lambda: current_time)
             writer.close()
 
-            migrated_log = directory / "gunicorn-2026-10-03T000000.log"
-            self.assertEqual(migrated_log.read_bytes(), b"existing output\n")
+            app_log = directory / "mythtv-web-2026-10-03T000000.log"
+            self.assertEqual(app_log.read_bytes(), b"existing output\n")
+            self.assertFalse(legacy_log.exists())
+
+    def test_migrates_dated_gunicorn_log_to_app_name(self):
+        current_time = datetime(2026, 10, 3, 12, 0, 0)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            legacy_log = directory / "gunicorn-2026-10-02T000000.log"
+            legacy_log.write_bytes(b"previous period\n")
+
+            writer = DailyLogWriter(directory, clock=lambda: current_time)
+            writer.close()
+
+            app_log = directory / "mythtv-web-2026-10-02T000000.log"
+            self.assertEqual(app_log.read_bytes(), b"previous period\n")
             self.assertFalse(legacy_log.exists())
 
 
