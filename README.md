@@ -17,7 +17,7 @@ python -m pip install -r requirements-dev.txt
 
 ## Recordings library
 
-The home page displays the recorded-program library from MythTV's `Dvr/GetRecordedList` service. Flask proxies the API and cover art locally, so the browser does not connect to the MythTV backend directly. The default backend URL is `http://127.0.0.1:6544`; set `MYTHTV_BACKEND_URL` if the local backend uses another address. The page supports title/channel search over loaded results, watched-state filters, and pagination.
+The home page groups recordings by program title, like MythFrontend. Selecting a group shows all recordings in that group. Flask loads the full recorded-program list from MythTV's `Dvr/GetRecordedList` service and caches it under `.run/` for two minutes so every Gunicorn worker can serve complete groups consistently. The first group load can take several seconds for a large library. Flask also proxies cover art locally, so the browser does not connect to MythTV directly. The default backend URL is `http://127.0.0.1:6544`; set `MYTHTV_BACKEND_URL` if the local backend uses another address. Search and watched-state filters are available in both views.
 
 ## Quality checks
 

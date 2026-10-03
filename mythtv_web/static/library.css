@@ -141,6 +141,16 @@ input {
   padding-bottom: 27px;
 }
 
+.back-button {
+  margin: 0 0 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--leaf);
+  cursor: pointer;
+  font-size: 12px;
+}
+
 .eyebrow {
   margin: 0 0 12px;
   color: var(--leaf);
@@ -320,6 +330,32 @@ h1 {
 
 .program-card:hover .poster img {
   transform: scale(1.035);
+}
+
+.group-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.group-open:focus-visible {
+  outline-offset: 5px;
+}
+
+.group-open:hover .program-title {
+  color: var(--leaf);
+}
+
+.group-count {
+  min-height: 17px;
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .poster-fallback {

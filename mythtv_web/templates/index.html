@@ -23,9 +23,10 @@
     <main class="library-shell">
       <section class="library-heading" aria-labelledby="page-title">
         <div>
+          <button class="back-button" id="back-to-groups" type="button" hidden>← All programs</button>
           <p class="eyebrow">MYTH BACKEND <span>/</span> VIDEO LIBRARY</p>
           <h1 id="page-title">Recordings</h1>
-          <p class="library-summary"><strong id="total-count">--</strong> programs in your library</p>
+          <p class="library-summary"><strong id="total-count">--</strong> <span id="total-label">recordings across program groups</span></p>
         </div>
         <div class="sync-note" id="sync-note" aria-live="polite">Connecting to MythTV…</div>
       </section>
@@ -33,7 +34,7 @@
       <section class="toolbar" aria-label="Library controls">
         <label class="search-box">
           <span aria-hidden="true">⌕</span>
-          <input id="search" type="search" placeholder="Search loaded programs" autocomplete="off">
+          <input id="search" type="search" placeholder="Search program groups" autocomplete="off">
           <kbd>/</kbd>
         </label>
         <div class="filter-group" role="group" aria-label="Filter by watched status">
@@ -49,9 +50,6 @@
         <span class="empty-mark" aria-hidden="true">—</span>
         <h2 id="empty-title">No recordings found</h2>
         <p id="empty-description">Try another search or change the watched filter.</p>
-      </div>
-      <div class="load-row">
-        <button class="load-button" id="load-more" type="button" hidden>Load more</button>
       </div>
     </main>
 
