@@ -588,8 +588,8 @@ def test_program_groups_aggregate_titles_and_reuse_full_list_cache(
             "Artwork": {
                 "ArtworkInfos": [
                     {
-                        "Type": "coverart",
-                        "URL": "/Content/GetImageFile?StorageGroup=Coverart&FileName=%2Ffilm-cover.jpg",
+                        "Type": "fanart",
+                        "URL": "/Content/GetImageFile?StorageGroup=Fanart&FileName=%2Ffilm-fanart.jpg",
                     }
                 ]
             },
@@ -645,7 +645,7 @@ def test_program_groups_aggregate_titles_and_reuse_full_list_cache(
     assert series_group["recording_count"] == 2
     assert series_group["watched_count"] == 1
     assert series_group["artwork_url"] == (
-        "/Content/GetImageFile?StorageGroup=Fanart&FileName=%2Ffanart.jpg"
+        "/Content/GetImageFile?StorageGroup=Coverart&FileName=%2Fcover.jpg"
     )
     film_group = next(
         group
@@ -653,7 +653,7 @@ def test_program_groups_aggregate_titles_and_reuse_full_list_cache(
         if group["title"] == "One-off film"
     )
     assert film_group["artwork_url"] == (
-        "/Content/GetImageFile?StorageGroup=Coverart&FileName=%2Ffilm-cover.jpg"
+        "/Content/GetImageFile?StorageGroup=Fanart&FileName=%2Ffilm-fanart.jpg"
     )
     assert film_group["preview_url"] == "/api/preview?recorded_id=42"
     assert (

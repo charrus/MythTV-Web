@@ -525,11 +525,12 @@ function isWatched(program) {
   return (program.ProgramFlagNames || "").split("|").includes("WATCHED");
 }
 
-function artworkUrl(program) {
+function artworkUrl(program, preferredType = "fanart") {
   const artworkInfos = program.Artwork?.ArtworkInfos || [];
+  const fallbackType = preferredType === "fanart" ? "coverart" : "fanart";
   const artwork =
-    artworkInfos.find((item) => item.Type === "fanart" && item.URL) ||
-    artworkInfos.find((item) => item.Type === "coverart" && item.URL);
+    artworkInfos.find((item) => item.Type === preferredType && item.URL) ||
+    artworkInfos.find((item) => item.Type === fallbackType && item.URL);
   return artwork?.URL
     ? appPath(`/api/artwork?url=${encodeURIComponent(artwork.URL)}`)
     : "";
@@ -632,10 +633,10 @@ function makeGroupCard(group, index) {
     `Open ${group.title}, ${group.recording_count} ${group.recording_count === 1 ? "recording" : "recordings"}`,
   );
   const badge = group.watched_count === group.recording_count ? "Watched" : "";
-  openButton.append(makePoster(group.artwork_url, badge, group.preview_url));
+  const poster = makePoster(group.artwork_url, badge, group.preview_url);
 
   const info = document.createElement("div");
-  info.className = "program-info";
+  info.className = "program-info program-info-overlay";
   const channel = document.createElement("p");
   channel.className = "program-channel";
   channel.textContent = group.channel_name || group.category || "Program";
@@ -652,7 +653,8 @@ function makeGroupCard(group, index) {
   latest.textContent = `Latest ${formatDate(group.latest_start)}`;
   meta.append(latest);
   info.append(channel, title, subtitle, meta);
-  openButton.append(info);
+  poster.append(info);
+  openButton.append(poster);
   openButton.addEventListener("click", () => loadGroup(group));
   card.append(openButton);
   return card;
@@ -663,7 +665,7 @@ function makeProgramCard(program, index) {
   card.className = "program-card";
   card.style.animationDelay = `${Math.min(index % 8, 8) * 22}ms`;
   const poster = makePoster(
-    artworkUrl(program) || selectedGroupArtwork,
+    artworkUrl(program, "coverart") || selectedGroupArtwork,
     isWatched(program) ? "Watched" : "",
     previewUrl(program),
   );
@@ -684,7 +686,7 @@ function makeProgramCard(program, index) {
   posterButton.addEventListener("click", () => openPlayer(program, "resume"));
 
   const info = document.createElement("div");
-  info.className = "program-info";
+  info.className = "program-info program-info-overlay";
   const channel = document.createElement("p");
   channel.className = "program-channel";
   channel.textContent = program.Channel?.ChannelName || program.Category || "Recording";
@@ -732,7 +734,8 @@ function makeProgramCard(program, index) {
     ));
   }
   actions.append(...recordingActions);
-  card.append(posterButton, info, actions);
+  poster.append(info);
+  card.append(posterButton, actions);
   return card;
 }
 

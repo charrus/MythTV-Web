@@ -680,7 +680,7 @@ def create_app() -> Flask:
 
         def group_artwork_url(program):
             artwork = (program.get("Artwork") or {}).get("ArtworkInfos") or []
-            for image_type in ("fanart", "coverart"):
+            for image_type in ("coverart", "fanart"):
                 image_url = next(
                     (
                         item.get("URL")
