@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#17211d">
+    <meta name="theme-color" content="#182532">
     <meta name="app-root" content="{{ request.script_root }}">
     <title>Recordings | MythTV</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='library.css') }}">
@@ -12,8 +12,7 @@
   <body>
     <header class="topbar">
       <a class="brand" href="{{ request.script_root or '' }}/" aria-label="MythTV home">
-        <span class="brand-mark" aria-hidden="true">M</span>
-        <span>MYTHTV</span>
+        <img class="brand-logo" src="{{ url_for('static', filename='mythtv.png') }}" alt="">
       </a>
       <nav aria-label="Main navigation">
         <a class="nav-link active" href="{{ request.script_root or '' }}/" aria-current="page">Recordings</a>
@@ -164,7 +163,7 @@
     </dialog>
 
     <footer class="page-footer">
-      <span>MYTHTV WEB</span>
+      <span>MythTV Web</span>
       <span id="loaded-count">Waiting for backend</span>
     </footer>
   </body>

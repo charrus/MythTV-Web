@@ -13,6 +13,9 @@ def test_home_renders_recordings_library():
 
     assert response.status_code == 200
     assert b"Recordings" in response.data
+    assert b"MythTV Web" in response.data
+    assert b"MYTHTV" not in response.data
+    assert b"/static/mythtv.png" in response.data
     assert b"/static/build/library.js" in response.data
     assert b"browser-wasm-test" not in response.data
     assert b"browser-wasm-stream" not in response.data

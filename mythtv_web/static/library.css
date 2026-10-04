@@ -1,14 +1,14 @@
 :root {
   color-scheme: dark;
-  --page: #141b18;
-  --surface: #1d2722;
-  --surface-raised: #25312b;
-  --surface-soft: #202b26;
-  --line: #35443b;
+  --page: #131d28;
+  --surface: #1c2935;
+  --surface-raised: #263644;
+  --surface-soft: #202e3b;
+  --line: #3c4e5f;
   --text: #f0f0e7;
-  --muted: #a7b0a6;
-  --faint: #748177;
-  --leaf: #bfd67a;
+  --muted: #a9b7c4;
+  --faint: #7c8d9c;
+  --accent: #9fc9f3;
   --amber: #e8a05b;
   --red: #db8064;
   --radius: 5px;
@@ -26,8 +26,8 @@ body {
   min-height: 100vh;
   margin: 0;
   background:
-    radial-gradient(ellipse at 7% 8%, rgb(69 91 67 / 18%), transparent 34rem),
-    linear-gradient(145deg, #18211d 0%, var(--page) 44rem);
+    radial-gradient(ellipse at 7% 8%, rgb(67 104 148 / 22%), transparent 34rem),
+    linear-gradient(145deg, #182532 0%, var(--page) 44rem);
 }
 
 button,
@@ -42,7 +42,7 @@ input {
 }
 
 :focus-visible {
-  outline: 2px solid var(--leaf);
+  outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 
@@ -52,31 +52,28 @@ input {
   align-items: center;
   gap: 42px;
   padding: 0 clamp(20px, 4vw, 64px);
-  border-bottom: 1px solid rgb(197 215 194 / 10%);
-  background: rgb(18 25 21 / 78%);
+  border-bottom: 1px solid rgb(197 215 236 / 12%);
+  background: rgb(18 25 33 / 82%);
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 11px;
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 1.4px;
+  width: 106px;
+  height: 36px;
+  background: url("mythtv.png") center / contain no-repeat;
   text-decoration: none;
 }
 
-.brand-mark {
-  display: grid;
-  width: 29px;
-  height: 29px;
-  place-items: center;
-  border: 1px solid #9db45d;
-  border-radius: 50%;
-  color: #d3e69a;
-  font-size: 14px;
-  letter-spacing: 0;
+.brand > span {
+  display: none;
+}
+
+.brand-logo {
+  display: block;
+  width: 106px;
+  height: 36px;
+  object-fit: contain;
 }
 
 .topbar nav {
@@ -105,7 +102,7 @@ input {
   bottom: -1px;
   left: 0;
   height: 2px;
-  background: var(--leaf);
+  background: var(--accent);
   content: "";
 }
 
@@ -122,8 +119,8 @@ input {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--leaf);
-  box-shadow: 0 0 10px rgb(191 214 122 / 45%);
+  background: var(--accent);
+  box-shadow: 0 0 10px rgb(159 201 243 / 45%);
 }
 
 .library-shell {
@@ -145,22 +142,22 @@ input {
   margin: 0 0 10px;
   min-height: 34px;
   padding: 0 11px;
-  border: 1px solid #536746;
+  border: 1px solid #536b83;
   border-radius: var(--radius);
-  background: #263329;
-  color: #d8e9ae;
+  background: #263847;
+  color: #d7e9fa;
   cursor: pointer;
   font-size: 13px;
 }
 
 .back-button:hover {
-  border-color: var(--leaf);
-  background: #344332;
+  border-color: var(--accent);
+  background: #344d64;
 }
 
 .eyebrow {
   margin: 0 0 12px;
-  color: var(--leaf);
+  color: var(--accent);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 1.2px;
@@ -219,7 +216,7 @@ h1 {
   align-items: center;
   gap: 10px;
   padding: 0 11px;
-  border: 1px solid #39473f;
+  border: 1px solid #394b5c;
   border-radius: var(--radius);
   background: var(--surface);
   color: var(--muted);
@@ -241,7 +238,7 @@ h1 {
 }
 
 .search-box input::placeholder {
-  color: #89948a;
+  color: #8996a1;
 }
 
 .search-box kbd {
@@ -250,7 +247,7 @@ h1 {
   height: 20px;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid #536056;
+  border: 1px solid #536678;
   border-radius: 3px;
   color: var(--muted);
   font: 11px "Trebuchet MS", sans-serif;
@@ -260,9 +257,9 @@ h1 {
   display: flex;
   gap: 3px;
   padding: 3px;
-  border: 1px solid #354239;
+  border: 1px solid #354859;
   border-radius: var(--radius);
-  background: #19221e;
+  background: #192532;
 }
 
 .filter-button {
@@ -281,8 +278,8 @@ h1 {
 }
 
 .filter-button.selected {
-  background: #394737;
-  color: #e8f0cf;
+  background: #394f64;
+  color: #e5f0fb;
 }
 
 .result-note {
@@ -315,9 +312,9 @@ h1 {
   overflow: hidden;
   width: 100%;
   aspect-ratio: 16 / 10;
-  border: 1px solid rgb(221 228 208 / 10%);
+  border: 1px solid rgb(221 228 240 / 10%);
   border-radius: var(--radius);
-  background: linear-gradient(145deg, #394839, #222c27 70%);
+  background: linear-gradient(145deg, #394c60, #222f3d 70%);
 }
 
 .poster::after {
@@ -355,7 +352,7 @@ h1 {
 }
 
 .group-open:hover .program-title {
-  color: var(--leaf);
+  color: var(--accent);
 }
 
 .recording-poster-button {
@@ -415,7 +412,7 @@ h1 {
 
 .recording-poster-button:hover .poster-play-mark,
 .recording-poster-button:focus-visible .poster-play-mark {
-  background: #344332;
+  background: #344e67;
   opacity: 1;
   scale: 1.06;
 }
@@ -436,15 +433,15 @@ h1 {
   padding: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: rgb(37 49 43 / 64%);
+  background: rgb(37 49 62 / 64%);
   color: var(--muted);
   cursor: pointer;
   transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
 }
 
 .recording-action:hover {
-  border-color: #758b65;
-  background: #344332;
+  border-color: #758da5;
+  background: #354d64;
   color: var(--text);
 }
 
@@ -475,7 +472,7 @@ h1 {
   inset: 0;
   display: grid;
   place-items: center;
-  color: rgb(226 235 203 / 72%);
+  color: rgb(226 235 247 / 72%);
   font-size: 38px;
   font-weight: 300;
 }
@@ -501,7 +498,7 @@ h1 {
 }
 
 .poster-badge.watched {
-  color: #d1ddad;
+  color: #bdd5ec;
 }
 
 .program-info {
@@ -568,7 +565,7 @@ h1 {
 }
 
 .program-size {
-  color: #89968b;
+  color: #8996a1;
 }
 
 .empty-state {
@@ -584,7 +581,7 @@ h1 {
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 50%;
-  color: var(--leaf);
+  color: var(--accent);
   font-size: 20px;
 }
 
@@ -608,17 +605,17 @@ h1 {
 .load-button {
   min-height: 40px;
   padding: 0 23px;
-  border: 1px solid #596b4a;
+  border: 1px solid #596d80;
   border-radius: var(--radius);
-  background: #29362c;
-  color: #e2edc5;
+  background: #293949;
+  color: #e2edf7;
   cursor: pointer;
   font-size: 13px;
 }
 
 .load-button:hover {
-  border-color: var(--leaf);
-  background: #344332;
+  border-color: var(--accent);
+  background: #344c63;
 }
 
 .load-button:disabled {
@@ -632,9 +629,9 @@ h1 {
   max-height: calc(100dvh - 32px);
   padding: 0;
   overflow: auto;
-  border: 1px solid #4b5b50;
+  border: 1px solid #4b5d70;
   border-radius: var(--radius);
-  background: #101613;
+  background: #101820;
   color: var(--text);
 }
 
@@ -642,15 +639,15 @@ h1 {
   width: min(440px, calc(100% - 28px));
   max-width: none;
   padding: 0;
-  border: 1px solid #526152;
+  border: 1px solid #526679;
   border-radius: var(--radius);
-  background: linear-gradient(155deg, #202c25, #121815 68%);
+  background: linear-gradient(155deg, #202f3c, #121a22 68%);
   box-shadow: 0 24px 80px rgb(0 0 0 / 55%);
   color: var(--text);
 }
 
 .delete-dialog::backdrop {
-  background: rgb(4 8 6 / 78%);
+  background: rgb(4 8 12 / 78%);
   backdrop-filter: blur(5px);
 }
 
@@ -666,7 +663,7 @@ h1 {
 
 .delete-recording-name {
   margin: 0 0 12px;
-  color: var(--leaf);
+  color: var(--accent);
   font-size: 14px;
   font-weight: 650;
   line-height: 1.4;
@@ -740,8 +737,8 @@ h1 {
 }
 
 .delete-cancel:hover:not(:disabled) {
-  border-color: #758b65;
-  background: #344332;
+  border-color: #758da5;
+  background: #344c63;
 }
 
 .delete-cancel:disabled,
@@ -751,7 +748,7 @@ h1 {
 }
 
 .player-dialog::backdrop {
-  background: rgb(5 9 7 / 88%);
+  background: rgb(5 9 14 / 88%);
   backdrop-filter: blur(5px);
 }
 
@@ -851,18 +848,18 @@ h1 {
   min-width: 48px;
   height: 48px;
   min-height: 48px;
-  border-color: #8a9b71;
-  background: #344332;
+  border-color: #8a9db2;
+  background: #344b62;
   color: #f4f5e8;
 }
 
 .player-toggle:hover:not(:disabled) {
-  background: #46583f;
+  background: #465f78;
 }
 
 .player-forward-smart {
-  border-color: var(--leaf);
-  background: #526e43;
+  border-color: var(--accent);
+  background: #526e87;
   color: #fff;
 }
 
@@ -875,7 +872,7 @@ h1 {
   width: 100%;
   max-height: min(66vh, 720px);
   aspect-ratio: 16 / 9;
-  background: #050706;
+  background: #060910;
   object-fit: contain;
 }
 
@@ -916,7 +913,7 @@ h1 {
 
 #playback-seek {
   width: 100%;
-  accent-color: var(--leaf);
+  accent-color: var(--accent);
 }
 
 .player-toolbar {
@@ -931,7 +928,7 @@ h1 {
 .player-button,
 .player-select {
   min-height: 36px;
-  border: 1px solid #48584c;
+  border: 1px solid #485c70;
   border-radius: var(--radius);
   background: var(--surface);
   color: var(--text);
@@ -944,7 +941,7 @@ h1 {
 }
 
 .player-button:hover:not(:disabled) {
-  border-color: var(--leaf);
+  border-color: var(--accent);
 }
 
 .player-button:disabled {
@@ -975,7 +972,7 @@ h1 {
 .smart-skip-control input {
   width: 16px;
   height: 16px;
-  accent-color: var(--leaf);
+  accent-color: var(--accent);
 }
 
 .player-details {
@@ -1007,7 +1004,7 @@ h1 {
   justify-content: center;
   padding: 0;
   overflow: hidden;
-  background: #050706;
+  background: #060910;
 }
 
 .player-shell:fullscreen #recording-video {
@@ -1107,10 +1104,23 @@ h1 {
   align-items: center;
   gap: 16px;
   padding: 0 clamp(20px, 4vw, 64px);
-  border-top: 1px solid rgb(197 215 194 / 10%);
+  border-top: 1px solid rgb(197 215 236 / 12%);
   color: var(--faint);
   font-size: 10px;
   letter-spacing: .5px;
+}
+
+.page-footer > span:first-child {
+  position: relative;
+  visibility: hidden;
+}
+
+.page-footer > span:first-child::before {
+  position: absolute;
+  left: 0;
+  content: "MythTV Web";
+  font-size: 10px;
+  visibility: visible;
 }
 
 @media (min-width: 1450px) {
@@ -1151,16 +1161,6 @@ h1 {
     height: 58px;
     gap: 22px;
     padding: 0 17px;
-  }
-
-  .brand {
-    gap: 8px;
-    font-size: 11px;
-  }
-
-  .brand-mark {
-    width: 26px;
-    height: 26px;
   }
 
   .system-state {
