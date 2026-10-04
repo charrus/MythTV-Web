@@ -1234,8 +1234,14 @@ h1 {
   position: relative;
   overflow: hidden;
   width: 100%;
-  aspect-ratio: 17 / 25;
+  aspect-ratio: 200 / 289;
+  border: 1px solid rgb(221 228 240 / 10%);
   border-radius: var(--radius);
+  background: linear-gradient(145deg, #394c60, #222f3d 70%);
+}
+
+.poster-coverart {
+  border: 0;
   background: transparent;
 }
 

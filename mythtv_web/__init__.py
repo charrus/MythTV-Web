@@ -94,6 +94,10 @@ def _title_sort_key(title: str) -> tuple:
     return parts, title.casefold()
 
 
+def _normalize_group_title(title: str) -> str:
+    return " ".join(title.casefold().split())
+
+
 def _recording_preview_url(program: dict) -> str | None:
     recorded_id = (program.get("Recording") or {}).get("RecordedId")
     if not isinstance(recorded_id, int) or recorded_id <= 0:
@@ -678,7 +682,7 @@ def create_app() -> Flask:
             in ACTIVE_RECORDING_GROUPS
         ]
 
-        def group_artwork_url(program):
+        def group_artwork(program):
             artwork = (program.get("Artwork") or {}).get("ArtworkInfos") or []
             for image_type in ("coverart", "fanart"):
                 image_url = next(
@@ -690,15 +694,17 @@ def create_app() -> Flask:
                     None,
                 )
                 if image_url:
-                    return image_url
-            return None
+                    return image_url, image_type
+            return None, None
 
         groups = {}
         for program in default_programs:
             title = program.get("Title") or "Untitled recording"
+            group_key = _normalize_group_title(title)
             latest_start = program.get("StartTime") or ""
-            group = groups.get(title)
+            group = groups.get(group_key)
             if group is None:
+                artwork_url, artwork_type = group_artwork(program)
                 group = {
                     "title": title,
                     "recording_count": 0,
@@ -706,12 +712,13 @@ def create_app() -> Flask:
                     "latest_start": latest_start,
                     "channel_name": (program.get("Channel") or {}).get("ChannelName"),
                     "category": program.get("Category"),
-                    "artwork_url": group_artwork_url(program),
+                    "artwork_url": artwork_url,
+                    "artwork_type": artwork_type,
                     "preview_url": _recording_preview_url(program),
                 }
-                groups[title] = group
+                groups[group_key] = group
             elif not group["artwork_url"]:
-                group["artwork_url"] = group_artwork_url(program)
+                group["artwork_url"], group["artwork_type"] = group_artwork(program)
 
             group["recording_count"] += 1
             if "WATCHED" in (program.get("ProgramFlagNames") or "").split("|"):
@@ -741,7 +748,8 @@ def create_app() -> Flask:
             for program in programs
             if (program.get("Recording") or {}).get("RecGroup")
             in ACTIVE_RECORDING_GROUPS
-            and (program.get("Title") or "Untitled recording") == title
+            and _normalize_group_title(program.get("Title") or "Untitled recording")
+            == _normalize_group_title(title)
         ]
         if not matches:
             return jsonify(error="Program group not found"), 404

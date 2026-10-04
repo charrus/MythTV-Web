@@ -2,6 +2,7 @@ let programGroups = [];
 let currentPrograms = [];
 let selectedGroupTitle = null;
 let selectedGroupArtwork = null;
+let selectedGroupArtworkType = null;
 let totalRecordings = 0;
 let activeFilter = "all";
 let loading = false;
@@ -525,12 +526,17 @@ function isWatched(program) {
   return (program.ProgramFlagNames || "").split("|").includes("WATCHED");
 }
 
-function artworkUrl(program, preferredType = "fanart") {
+function artworkInfo(program, preferredType = "fanart") {
   const artworkInfos = program.Artwork?.ArtworkInfos || [];
   const fallbackType = preferredType === "fanart" ? "coverart" : "fanart";
-  const artwork =
+  return (
     artworkInfos.find((item) => item.Type === preferredType && item.URL) ||
-    artworkInfos.find((item) => item.Type === fallbackType && item.URL);
+    artworkInfos.find((item) => item.Type === fallbackType && item.URL)
+  );
+}
+
+function artworkUrl(program, preferredType = "fanart") {
+  const artwork = artworkInfo(program, preferredType);
   return artwork?.URL
     ? appPath(`/api/artwork?url=${encodeURIComponent(artwork.URL)}`)
     : "";
@@ -543,10 +549,11 @@ function previewUrl(program) {
     : "";
 }
 
-function makePoster(sourceUrl, badgeText = "", fallbackUrl = "") {
+function makePoster(sourceUrl, badgeText = "", fallbackUrl = "", artworkType = "") {
   sourceUrl = sourceUrl || "";
   const poster = document.createElement("div");
   poster.className = "poster";
+  if (artworkType === "coverart") poster.classList.add("poster-coverart");
   const fallback = document.createElement("span");
   fallback.className = "poster-fallback";
   fallback.textContent = "M";
@@ -567,6 +574,7 @@ function makePoster(sourceUrl, badgeText = "", fallbackUrl = "") {
       image.loading = "lazy";
       image.addEventListener("load", () => fallback.remove(), { once: true });
       image.addEventListener("error", () => {
+        poster.classList.remove("poster-coverart");
         if (fallbackUrl && image.src !== new URL(fallbackUrl, location.href).href) {
           image.src = fallbackUrl;
         } else {
@@ -633,7 +641,12 @@ function makeGroupCard(group, index) {
     `Open ${group.title}, ${group.recording_count} ${group.recording_count === 1 ? "recording" : "recordings"}`,
   );
   const badge = group.watched_count === group.recording_count ? "Watched" : "";
-  const poster = makePoster(group.artwork_url, badge, group.preview_url);
+  const poster = makePoster(
+    group.artwork_url,
+    badge,
+    group.preview_url,
+    group.artwork_type,
+  );
 
   const info = document.createElement("div");
   info.className = "program-info program-info-overlay";
@@ -664,10 +677,12 @@ function makeProgramCard(program, index) {
   const card = document.createElement("article");
   card.className = "program-card";
   card.style.animationDelay = `${Math.min(index % 8, 8) * 22}ms`;
+  const artwork = artworkInfo(program, "coverart");
   const poster = makePoster(
-    artworkUrl(program, "coverart") || selectedGroupArtwork,
+    artwork?.URL || selectedGroupArtwork,
     isWatched(program) ? "Watched" : "",
     previewUrl(program),
+    artwork?.Type || selectedGroupArtworkType,
   );
   const posterButton = document.createElement("button");
   posterButton.className = "recording-poster-button";
@@ -856,6 +871,7 @@ async function loadGroup(group) {
     const result = await response.json();
     selectedGroupTitle = result.title;
     selectedGroupArtwork = group.artwork_url;
+    selectedGroupArtworkType = group.artwork_type;
     currentPrograms = result.programs;
     searchInput.value = "";
     syncNote.textContent = "Complete group";
@@ -872,6 +888,7 @@ async function loadGroup(group) {
 function returnToGroups() {
   selectedGroupTitle = null;
   selectedGroupArtwork = null;
+  selectedGroupArtworkType = null;
   currentPrograms = [];
   searchInput.value = "";
   renderGroups();

@@ -573,7 +573,7 @@ def test_program_groups_aggregate_titles_and_reuse_full_list_cache(
             },
         },
         {
-            "Title": "Example series",
+            "Title": "Example SERIES",
             "Recording": {"RecGroup": "Seasons"},
             "SubTitle": "Episode one",
             "StartTime": "2026-10-02T10:00:00Z",
@@ -647,6 +647,7 @@ def test_program_groups_aggregate_titles_and_reuse_full_list_cache(
     assert series_group["artwork_url"] == (
         "/Content/GetImageFile?StorageGroup=Coverart&FileName=%2Fcover.jpg"
     )
+    assert series_group["artwork_type"] == "coverart"
     film_group = next(
         group
         for group in groups_response.json["groups"]
@@ -655,6 +656,7 @@ def test_program_groups_aggregate_titles_and_reuse_full_list_cache(
     assert film_group["artwork_url"] == (
         "/Content/GetImageFile?StorageGroup=Fanart&FileName=%2Ffilm-fanart.jpg"
     )
+    assert film_group["artwork_type"] == "fanart"
     assert film_group["preview_url"] == "/api/preview?recorded_id=42"
     assert (
         next(
@@ -665,6 +667,7 @@ def test_program_groups_aggregate_titles_and_reuse_full_list_cache(
         == 1
     )
     assert detail_response.status_code == 200
+    assert detail_response.json["total"] == 2
     assert [program["SubTitle"] for program in detail_response.json["programs"]] == [
         "Episode one",
         "Episode two",
