@@ -51,13 +51,13 @@ pytest
 For local development:
 
 ```sh
-flask --app 'mythtv_web:create_app' run --host 127.0.0.1 --port 6555
+flask --app 'mythtv_web:create_app' run --host 0.0.0.0 --port 6555
 ```
 
 For the Apache-facing server process:
 
 ```sh
-gunicorn --workers 2 --worker-class gthread --threads 8 --timeout 120 --bind 127.0.0.1:6555 'mythtv_web:create_app()'
+gunicorn --workers 2 --worker-class gthread --threads 8 --timeout 120 --bind 0.0.0.0:6555 'mythtv_web:create_app()'
 ```
 
 The landing page is at `/`; `/healthz` returns a small JSON health response. Stop the process with Ctrl+C when running it in the foreground.
@@ -77,7 +77,7 @@ The launcher requires dependencies to be installed in `.venv/`. It only stops th
 
 ## Apache reverse proxy
 
-The example Apache snippet is [`config/apache/mythtv-web.conf`](config/apache/mythtv-web.conf). It serves the app at `https://mythtv.example.com/mythtv-web/`, redirects HTTP to HTTPS, and requires Apache Basic Auth. Replace `mythtv.example.com` in the snippet with the canonical DNS name covered by your HTTPS certificate. The Flask/Gunicorn service binds to loopback on port 6555; Apache forwards the `/mythtv-web/` prefix so the page's static files and API requests use the same path.
+The example Apache snippet is [`config/apache/mythtv-web.conf`](config/apache/mythtv-web.conf). It serves the app at `https://mythtv.example.com/mythtv-web/`, redirects HTTP to HTTPS, and requires Apache Basic Auth. Replace `mythtv.example.com` in the snippet with the canonical DNS name covered by your HTTPS certificate. The Flask/Gunicorn service binds to all interfaces on port 6555 so trusted LAN clients can connect directly; Apache also forwards the `/mythtv-web/` prefix so the page's static files and API requests use the same path.
 
 On Debian or Ubuntu, install the snippet and create the password file as root:
 
@@ -97,7 +97,7 @@ Include the snippet inside both the HTTP and HTTPS `<VirtualHost>` blocks for yo
 Include /etc/apache2/conf-available/mythtv-web.conf
 ```
 
-The Basic Auth rule is scoped to the backend proxy target and sets `Satisfy all` to prevent a broad legacy proxy allowlist from bypassing the login. Apache overwrites `X-Authenticated-User` with the authenticated account name; Flask requires this proxy-supplied identity and an explicit confirmation for recording deletion. The deletion request uses MythTV's non-forced delete options. The example assumes Apache and Flask run on the same host. Keep the Flask listener on `127.0.0.1:6555`; Apache should be the public entry point.
+The Basic Auth rule is scoped to the backend proxy target and sets `Satisfy all` to prevent a broad legacy proxy allowlist from bypassing the login. Apache overwrites `X-Authenticated-User` with the authenticated account name; Flask requires this proxy-supplied identity and an explicit confirmation for recording deletion. The deletion request uses MythTV's non-forced delete options. The example assumes Apache and Flask run on the same host. Because Flask binds to `0.0.0.0:6555`, enforce the network boundary with the host firewall: allow only the intended trusted clients or subnets to reach port 6555, and block untrusted networks. Direct Flask access bypasses Apache Basic Auth, so do not leave the port generally reachable.
 
 Start or restart the Flask service, then validate and reload Apache:
 

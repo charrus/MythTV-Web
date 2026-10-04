@@ -122,7 +122,7 @@ def run_gunicorn(project_dir: Path, pid_file: Path, writer: DailyLogWriter) -> i
         "--timeout",
         "120",
         "--bind",
-        "127.0.0.1:6555",
+        "0.0.0.0:6555",
         "--pid",
         str(pid_file),
         "--access-logfile",

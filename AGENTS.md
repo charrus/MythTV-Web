@@ -8,9 +8,9 @@ This project is a Python web server that will provide a browser-based interface 
 
 1. Use Python and Flask for the web application, following the existing app-factory structure in `mythtv_web/`.
 2. Keep the project environment local in `.venv/`; declare application dependencies in `requirements.txt` and development tools in `requirements-dev.txt`.
-3. Bind the application server to `127.0.0.1` on port `6555`; Apache proxies locally and is the only public entry point.
+3. Bind the application server to `0.0.0.0` on port `6555`; the host firewall must restrict access to trusted clients because direct Flask access bypasses Apache authentication.
 4. Use Apache as the public-facing reverse proxy and authentication boundary. Do not assume requests reaching Flask are authenticated unless a feature explicitly verifies that trust boundary.
-5. Keep port `6555` loopback-only so clients cannot bypass Apache authentication by reaching Flask directly.
+5. Keep port `6555` restricted by the host firewall to trusted clients and networks; do not expose it to untrusted networks.
 6. Keep MythTV integration local to this server. Add specific MythTV features incrementally as requirements are agreed and documented.
 7. Preserve the existing `/` landing route and `/healthz` health endpoint unless a change is intentionally required and documented.
 8. Keep this file updated as project requirements, architecture, and operational assumptions evolve.
