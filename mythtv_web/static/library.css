@@ -77,9 +77,18 @@ input {
 }
 
 .topbar nav {
+  min-width: 0;
+  flex: 1;
   height: 100%;
   display: flex;
   align-items: stretch;
+  gap: 26px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.topbar nav::-webkit-scrollbar {
+  display: none;
 }
 
 .nav-link {
@@ -87,9 +96,13 @@ input {
   display: flex;
   align-items: center;
   padding: 0 5px;
+  border: 0;
+  background: transparent;
   color: var(--muted);
   font-size: 14px;
   text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .nav-link.active {
@@ -128,6 +141,187 @@ input {
   min-height: calc(100vh - 128px);
   margin: 0 auto;
   padding: 43px 0 52px;
+}
+
+.service-view {
+  width: min(1440px, calc(100% - 2 * clamp(20px, 4vw, 64px)));
+  min-height: calc(100vh - 128px);
+  margin: 0 auto;
+  padding: 43px 0 52px;
+}
+
+.service-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 12px;
+}
+
+.service-row,
+.status-metric,
+.guide-program {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.service-row {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.service-row-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.service-row-title,
+.guide-channel-title {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.service-row-subtitle,
+.service-row-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.service-row-date,
+.guide-program-time {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.service-state {
+  width: fit-content;
+  color: var(--amber);
+  font-size: 11px;
+}
+
+.service-state.is-online {
+  color: var(--accent);
+}
+
+.service-empty {
+  grid-column: 1 / -1;
+  margin: 12px 0;
+  color: var(--muted);
+}
+
+.guide-navigation {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.guide-list {
+  display: grid;
+}
+
+.guide-channel {
+  display: grid;
+  grid-template-columns: minmax(130px, 180px) minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.guide-channel-title {
+  padding-top: 4px;
+  color: var(--accent);
+}
+
+.guide-programs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.guide-program {
+  width: min(100%, 280px);
+  display: grid;
+  align-content: start;
+  gap: 7px;
+}
+
+.guide-program-title {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.guide-program-subtitle,
+.guide-program-category {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.schedule-button {
+  justify-self: start;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid #536b83;
+  border-radius: var(--radius);
+  background: #263847;
+  color: #d7e9fa;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.schedule-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: #344d64;
+}
+
+.schedule-button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.status-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  gap: 10px;
+  margin-bottom: 28px;
+}
+
+.status-metric {
+  display: grid;
+  gap: 7px;
+}
+
+.status-metric-label {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.status-metric-value {
+  overflow-wrap: anywhere;
+  font-size: 17px;
+}
+
+.service-section-title {
+  margin: 0 0 12px;
+  font-size: 17px;
+}
+
+.encoder-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
 }
 
 .library-heading {
@@ -1159,18 +1353,39 @@ h1 {
 @media (max-width: 650px) {
   .topbar {
     height: 58px;
-    gap: 22px;
+    gap: 10px;
     padding: 0 17px;
   }
 
+  .topbar nav {
+    gap: 14px;
+  }
+
   .system-state {
-    gap: 6px;
-    font-size: 10px;
+    gap: 0;
+    margin-left: 0;
+    font-size: 0;
   }
 
   .library-shell {
     width: calc(100% - 34px);
     padding-top: 30px;
+  }
+
+  .service-view {
+    width: calc(100% - 34px);
+    padding-top: 30px;
+  }
+
+  .library-heading:has(.guide-navigation) {
+    align-items: start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .guide-channel {
+    grid-template-columns: 1fr;
+    gap: 9px;
   }
 
   .library-heading {

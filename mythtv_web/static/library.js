@@ -1103,4 +1103,269 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-loadGroups();
+const viewButtons = [...document.querySelectorAll("[data-view]")];
+const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
+const guideList = document.querySelector("#guide-list");
+const guideStatus = document.querySelector("#guide-status");
+const guideWindow = document.querySelector("#guide-window");
+const guideStartTime = new Date();
+guideStartTime.setMinutes(0, 0, 0);
+
+function makeElement(tagName, className, text) {
+  const element = document.createElement(tagName);
+  if (className) element.className = className;
+  if (text !== undefined) element.textContent = text;
+  return element;
+}
+
+function formatProgramTime(start, end) {
+  const formatter = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${formatter.format(new Date(start))}–${formatter.format(new Date(end))}`;
+}
+
+function formatGuideWindow(start, end) {
+  const formatter = new Intl.DateTimeFormat(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${formatter.format(start)} – ${formatter.format(end)}`;
+}
+
+async function requestJson(path, options = {}) {
+  const response = await fetch(appPath(path), options);
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result.error || `Request failed (${response.status})`);
+  }
+  return result;
+}
+
+function makeScheduleButton(program, channelId, statusElement) {
+  const scheduled = Number(program.Recording?.RecordId || 0) > 0;
+  const button = makeElement(
+    "button",
+    "schedule-button",
+    scheduled ? "Scheduled" : "Record this program",
+  );
+  button.type = "button";
+  button.disabled = scheduled;
+  if (!scheduled) {
+    button.addEventListener("click", () => scheduleProgram(program, channelId, button, statusElement));
+  }
+  return button;
+}
+
+async function scheduleProgram(program, channelId, button, statusElement) {
+  button.disabled = true;
+  button.textContent = "Scheduling…";
+  statusElement.textContent = "Sending schedule to MythTV…";
+  try {
+    const result = await requestJson("/api/schedules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        channel_id: channelId,
+        start_time: program.StartTime,
+      }),
+    });
+    button.textContent = result.existing ? "Already scheduled" : "Scheduled";
+    statusElement.textContent = result.existing
+      ? "This program already has a recording rule."
+      : "Recording scheduled in MythTV.";
+    const upcomingButton = document.querySelector('[data-view="upcoming"]');
+    if (upcomingButton.dataset.loaded === "true") loadUpcoming();
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Record this program";
+    statusElement.textContent = error.message;
+  }
+}
+
+function renderChannelPrograms(container, channels, onlyCurrent, statusElement) {
+  const now = Date.now();
+  const fragment = document.createDocumentFragment();
+  let rendered = 0;
+  for (const channel of channels) {
+    const programs = (channel.Programs || []).filter((program) => {
+      if (!onlyCurrent) return true;
+      const start = Date.parse(program.StartTime || "");
+      const end = Date.parse(program.EndTime || "");
+      return Number.isFinite(start) && Number.isFinite(end) && start <= now && now < end;
+    });
+    if (!programs.length) continue;
+
+    const row = makeElement("article", "guide-channel");
+    const channelTitle = channel.ChanNum
+      ? `${channel.ChanNum} · ${channel.CallSign || channel.ChannelName || "Channel"}`
+      : channel.CallSign || channel.ChannelName || "Channel";
+    row.append(makeElement("h2", "guide-channel-title", channelTitle));
+    const programList = makeElement("div", "guide-programs");
+    for (const program of programs) {
+      const card = makeElement("article", "guide-program");
+      card.append(makeElement("time", "guide-program-time", formatProgramTime(program.StartTime, program.EndTime)));
+      card.append(makeElement("h3", "guide-program-title", program.Title || "Untitled program"));
+      if (program.SubTitle) card.append(makeElement("p", "guide-program-subtitle", program.SubTitle));
+      if (program.Category) card.append(makeElement("p", "guide-program-category", program.Category));
+      card.append(makeScheduleButton(program, channel.ChanId, statusElement));
+      programList.append(card);
+      rendered += 1;
+    }
+    row.append(programList);
+    fragment.append(row);
+  }
+  container.replaceChildren(fragment);
+  return rendered;
+}
+
+async function loadGuide(onlyCurrent = false) {
+  const start = onlyCurrent ? new Date(Date.now() - 60 * 60 * 1000) : new Date(guideStartTime);
+  if (onlyCurrent) start.setMinutes(0, 0, 0);
+  const end = new Date(start.getTime() + (onlyCurrent ? 3 : 4) * 60 * 60 * 1000);
+  const list = onlyCurrent ? document.querySelector("#live-list") : guideList;
+  const statusElement = onlyCurrent ? document.querySelector("#live-status") : guideStatus;
+  statusElement.textContent = "Loading program data from MythTV…";
+  try {
+    const query = new URLSearchParams({ start: start.toISOString(), end: end.toISOString() });
+    const result = await requestJson(`/api/guide?${query}`);
+    const rendered = renderChannelPrograms(list, result.channels, onlyCurrent, statusElement);
+    if (onlyCurrent) {
+      document.querySelector("#live-summary").textContent = `${rendered} programs currently airing across visible channels.`;
+      statusElement.textContent = rendered ? "Current channel listings" : "No current program data is available.";
+    } else {
+      guideWindow.textContent = formatGuideWindow(start, end);
+      statusElement.textContent = `${rendered} programs across ${result.channels.length} channels.`;
+    }
+  } catch (error) {
+    list.replaceChildren(makeElement("p", "service-empty", error.message));
+    statusElement.textContent = "Could not load program data.";
+  }
+}
+
+function appendMetric(container, label, value) {
+  const metric = makeElement("div", "status-metric");
+  metric.append(makeElement("span", "status-metric-label", label));
+  metric.append(makeElement("strong", "status-metric-value", String(value)));
+  container.append(metric);
+}
+
+async function loadStatus() {
+  const metrics = document.querySelector("#status-metrics");
+  const encoders = document.querySelector("#encoder-list");
+  const summary = document.querySelector("#status-summary");
+  summary.textContent = "Checking backend…";
+  try {
+    const result = await requestJson("/api/backend-status");
+    const status = result.status;
+    const encoderList = Array.isArray(status.Encoders) ? status.Encoders : [];
+    const connected = encoderList.filter((encoder) => encoder.Connected).length;
+    metrics.replaceChildren();
+    appendMetric(metrics, "Version", status.Version || "Unknown");
+    appendMetric(metrics, "Backends", Array.isArray(status.Backends) ? status.Backends.length : 0);
+    appendMetric(metrics, "Encoders", encoderList.length);
+    appendMetric(metrics, "Connected", `${connected} / ${encoderList.length}`);
+    summary.textContent = status.AsOf ? `Updated ${formatDate(status.AsOf)}` : "Backend status received";
+    const cards = encoderList.map((encoder) => {
+      const card = makeElement("article", "service-row encoder-row");
+      const heading = makeElement("div", "service-row-heading");
+      heading.append(makeElement("h3", "service-row-title", `Encoder ${encoder.Id}`));
+      heading.append(makeElement("span", encoder.Connected ? "service-state is-online" : "service-state", encoder.Connected ? "Connected" : "Offline"));
+      card.append(heading);
+      card.append(makeElement("p", "service-row-meta", encoder.HostName || "Host unknown"));
+      card.append(makeElement("p", "service-row-meta", `State ${encoder.State ?? "unknown"}${encoder.Recording ? " · Recording" : " · Idle"}`));
+      return card;
+    });
+    encoders.replaceChildren(...cards);
+  } catch (error) {
+    summary.textContent = error.message;
+    metrics.replaceChildren();
+    encoders.replaceChildren(makeElement("p", "service-empty", "Backend status is unavailable."));
+  }
+}
+
+async function loadUpcoming() {
+  const list = document.querySelector("#upcoming-list");
+  const summary = document.querySelector("#upcoming-summary");
+  const statusElement = document.querySelector("#upcoming-status");
+  statusElement.textContent = "Loading scheduled programs…";
+  try {
+    const result = await requestJson("/api/upcoming?start=0&count=100");
+    summary.textContent = `${result.total.toLocaleString()} scheduled programs`;
+    const cards = result.programs.map((program) => {
+      const card = makeElement("article", "service-row");
+      card.append(makeElement("time", "service-row-date", formatProgramTime(program.StartTime, program.EndTime)));
+      card.append(makeElement("h2", "service-row-title", program.Title || "Untitled program"));
+      if (program.SubTitle) card.append(makeElement("p", "service-row-subtitle", program.SubTitle));
+      const channel = program.Channel || {};
+      const channelName = [channel.ChanNum, channel.CallSign || channel.ChannelName].filter(Boolean).join(" · ");
+      card.append(makeElement("p", "service-row-meta", `${formatDate(program.StartTime)}${channelName ? ` · ${channelName}` : ""}`));
+      card.append(makeElement("span", "service-state is-online", program.Recording?.RecTypeStatus || program.Recording?.StatusName || "Scheduled"));
+      return card;
+    });
+    list.replaceChildren(...cards);
+    if (!cards.length) list.append(makeElement("p", "service-empty", "No upcoming recordings."));
+    statusElement.textContent = "Schedule loaded from MythTV.";
+  } catch (error) {
+    summary.textContent = "";
+    statusElement.textContent = error.message;
+    list.replaceChildren(makeElement("p", "service-empty", "Could not load upcoming recordings."));
+  }
+}
+
+function activateView(name) {
+  for (const button of viewButtons) {
+    const selected = button.dataset.view === name;
+    button.classList.toggle("active", selected);
+    if (selected) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
+  for (const panel of viewPanels) panel.hidden = panel.dataset.viewPanel !== name;
+  const selectedButton = viewButtons.find((button) => button.dataset.view === name);
+  document.title = `${selectedButton?.textContent.trim() || "Recordings"} | MythTV`;
+  if (name === "recordings") loadGroups();
+  if (name === "live") loadGuide(true);
+  if (name === "upcoming") {
+    const upcomingButton = viewButtons.find((button) => button.dataset.view === "upcoming");
+    upcomingButton.dataset.loaded = "true";
+    loadUpcoming();
+  }
+  if (name === "guide") loadGuide();
+  if (name === "status") loadStatus();
+  window.history.replaceState(null, "", `${window.location.pathname}#${name}`);
+}
+
+if (viewButtons.length) {
+  for (const button of viewButtons) {
+    button.addEventListener("click", () => activateView(button.dataset.view));
+  }
+  document.querySelector("#refresh-live").addEventListener("click", () => loadGuide(true));
+  document.querySelector("#refresh-upcoming").addEventListener("click", loadUpcoming);
+  document.querySelector("#refresh-status").addEventListener("click", loadStatus);
+  document.querySelector("#guide-previous").addEventListener("click", () => {
+    guideStartTime.setHours(guideStartTime.getHours() - 4);
+    loadGuide();
+  });
+  document.querySelector("#guide-now").addEventListener("click", () => {
+    guideStartTime.setTime(Date.now());
+    guideStartTime.setMinutes(0, 0, 0);
+    loadGuide();
+  });
+  document.querySelector("#guide-next").addEventListener("click", () => {
+    guideStartTime.setHours(guideStartTime.getHours() + 4);
+    loadGuide();
+  });
+
+  const initialView = window.location.hash.slice(1);
+  if (viewButtons.some((button) => button.dataset.view === initialView)) {
+    activateView(initialView);
+  } else {
+    loadGroups();
+  }
+} else {
+  loadGroups();
+}

@@ -15,16 +15,20 @@
         <img class="brand-logo" src="{{ url_for('static', filename='mythtv.png') }}" alt="">
       </a>
       <nav aria-label="Main navigation">
-        <a class="nav-link active" href="{{ request.script_root or '' }}/" aria-current="page">Recordings</a>
+        <button class="nav-link active" type="button" data-view="recordings" aria-current="page">Recordings</button>
+        <button class="nav-link" type="button" data-view="live">Live TV</button>
+        <button class="nav-link" type="button" data-view="upcoming">Upcoming</button>
+        <button class="nav-link" type="button" data-view="guide">Guide</button>
+        <button class="nav-link" type="button" data-view="status">Status</button>
       </nav>
       <div class="system-state"><span></span> Local library</div>
     </header>
 
-    <main class="library-shell">
+    <main class="library-shell" data-view-panel="recordings">
       <section class="library-heading" aria-labelledby="page-title">
         <div>
           <button class="back-button" id="back-to-groups" type="button" aria-label="Back to program groups" hidden>← Back to program groups</button>
-          <p class="eyebrow">MYTH BACKEND <span>/</span> VIDEO LIBRARY</p>
+          <p class="eyebrow">MythTV Backend <span>/</span> Video Library</p>
           <h1 id="page-title">Recordings</h1>
           <p class="library-summary"><strong id="total-count">--</strong> <span id="total-label">recordings across program groups</span></p>
         </div>
@@ -52,6 +56,63 @@
         <p id="empty-description">Try another search or change the watched filter.</p>
       </div>
     </main>
+
+    <section class="service-view" data-view-panel="live" aria-labelledby="live-title" hidden>
+      <header class="library-heading">
+        <div>
+          <p class="eyebrow">LIVE TELEVISION</p>
+          <h1 id="live-title">Live TV</h1>
+          <p class="library-summary" id="live-summary">Programs currently airing on visible channels.</p>
+        </div>
+        <button class="back-button" id="refresh-live" type="button">Refresh</button>
+      </header>
+      <p class="result-note" id="live-status" role="status"></p>
+      <div class="service-list" id="live-list" aria-live="polite"></div>
+    </section>
+
+    <section class="service-view" data-view-panel="upcoming" aria-labelledby="upcoming-title" hidden>
+      <header class="library-heading">
+        <div>
+          <p class="eyebrow">SCHEDULER</p>
+          <h1 id="upcoming-title">Upcoming recordings</h1>
+          <p class="library-summary" id="upcoming-summary"></p>
+        </div>
+        <button class="back-button" id="refresh-upcoming" type="button">Refresh</button>
+      </header>
+      <p class="result-note" id="upcoming-status" role="status"></p>
+      <div class="service-list" id="upcoming-list" aria-live="polite"></div>
+    </section>
+
+    <section class="service-view" data-view-panel="guide" aria-labelledby="guide-title" hidden>
+      <header class="library-heading">
+        <div>
+          <p class="eyebrow">PROGRAM GUIDE</p>
+          <h1 id="guide-title">Guide</h1>
+          <p class="library-summary" id="guide-window"></p>
+        </div>
+        <div class="guide-navigation" role="group" aria-label="Guide time range">
+          <button class="back-button" id="guide-previous" type="button">Previous</button>
+          <button class="back-button" id="guide-now" type="button">Now</button>
+          <button class="back-button" id="guide-next" type="button">Next</button>
+        </div>
+      </header>
+      <p class="result-note" id="guide-status" role="status"></p>
+      <div class="guide-list" id="guide-list" aria-live="polite"></div>
+    </section>
+
+    <section class="service-view" data-view-panel="status" aria-labelledby="status-title" hidden>
+      <header class="library-heading">
+        <div>
+          <p class="eyebrow">MythTV backend</p>
+          <h1 id="status-title">Backend status</h1>
+          <p class="library-summary" id="status-summary"></p>
+        </div>
+        <button class="back-button" id="refresh-status" type="button">Refresh</button>
+      </header>
+      <div class="status-metrics" id="status-metrics" aria-live="polite"></div>
+      <h2 class="service-section-title">Encoders</h2>
+      <div class="service-list encoder-list" id="encoder-list" aria-live="polite"></div>
+    </section>
 
     <dialog class="delete-dialog" id="delete-dialog" aria-labelledby="delete-title" aria-describedby="delete-description">
       <div class="delete-confirmation">

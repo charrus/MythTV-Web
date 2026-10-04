@@ -15,7 +15,13 @@ def test_home_renders_recordings_library():
     assert b"Recordings" in response.data
     assert b"MythTV Web" in response.data
     assert b"MYTHTV" not in response.data
+    assert b"MYTH BACKEND" not in response.data
+    assert b"MythTV Backend" in response.data
     assert b"/static/mythtv.png" in response.data
+    assert all(
+        f'data-view="{view}"'.encode() in response.data
+        for view in ("recordings", "live", "upcoming", "guide", "status")
+    )
     assert b"/static/build/library.js" in response.data
     assert b"browser-wasm-test" not in response.data
     assert b"browser-wasm-stream" not in response.data
@@ -94,6 +100,196 @@ def test_home_includes_accessible_fullscreen_playback_controls():
         b'id="skip-ad" type="button" aria-label="Skip commercial break" title="Skip to the end of the next commercial break" disabled hidden'
         in response.data
     )
+
+
+def test_backend_status_is_proxied_as_json(monkeypatch):
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"BackendStatus": {"Version": "36.0", "Encoders": []}}
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("mythtv_web.requests.get", fake_get)
+    response = create_app().test_client().get("/api/backend-status")
+
+    assert response.status_code == 200
+    assert response.json["status"]["Version"] == "36.0"
+    assert captured["url"] == "http://127.0.0.1:6544/Status/GetBackendStatus"
+    assert captured["headers"]["Accept"] == "application/json"
+
+
+def test_upcoming_recordings_are_proxied_with_pagination(monkeypatch):
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "ProgramList": {
+                    "Programs": [{"Title": "Scheduled program"}],
+                    "StartIndex": 5,
+                    "Count": 1,
+                    "TotalAvailable": 11,
+                }
+            }
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("mythtv_web.requests.get", fake_get)
+    response = create_app().test_client().get("/api/upcoming?start=5&count=1")
+
+    assert response.status_code == 200
+    assert response.json == {
+        "programs": [{"Title": "Scheduled program"}],
+        "start": 5,
+        "count": 1,
+        "total": 11,
+    }
+    assert captured["url"] == "http://127.0.0.1:6544/Dvr/GetUpcomingList"
+    assert captured["params"] == {"StartIndex": 5, "Count": 1}
+
+
+def test_guide_is_proxied_for_a_valid_window(monkeypatch):
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "ProgramGuide": {
+                    "Channels": [{"ChanId": 1001, "Programs": []}],
+                    "StartTime": "2026-10-04T15:00:00Z",
+                    "EndTime": "2026-10-04T16:00:00Z",
+                    "TotalAvailable": 1,
+                }
+            }
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("mythtv_web.requests.get", fake_get)
+    response = (
+        create_app()
+        .test_client()
+        .get("/api/guide?start=2026-10-04T15:00:00Z&end=2026-10-04T16:00:00Z")
+    )
+
+    assert response.status_code == 200
+    assert response.json["channels"] == [{"ChanId": 1001, "Programs": []}]
+    assert captured["url"] == "http://127.0.0.1:6544/Guide/GetProgramGuide"
+    assert captured["params"] == {
+        "StartTime": "2026-10-04T15:00:00Z",
+        "EndTime": "2026-10-04T16:00:00Z",
+    }
+
+
+def test_guide_rejects_a_window_over_six_hours(monkeypatch):
+    def unexpected_get(*args, **kwargs):
+        raise AssertionError("invalid guide ranges must not reach MythTV")
+
+    monkeypatch.setattr("mythtv_web.requests.get", unexpected_get)
+    response = (
+        create_app()
+        .test_client()
+        .get("/api/guide?start=2026-10-04T00:00:00Z&end=2026-10-04T07:00:00Z")
+    )
+
+    assert response.status_code == 400
+
+
+def test_schedule_requires_an_authenticated_user(monkeypatch):
+    def unexpected_get(*args, **kwargs):
+        raise AssertionError("unauthenticated schedule requests must not reach MythTV")
+
+    monkeypatch.setattr("mythtv_web.requests.get", unexpected_get)
+    response = (
+        create_app()
+        .test_client()
+        .post(
+            "/api/schedules",
+            json={"channel_id": 1001, "start_time": "2026-10-04T15:00:00Z"},
+        )
+    )
+
+    assert response.status_code == 401
+
+
+def test_schedule_rejects_non_string_start_time(monkeypatch):
+    def unexpected_get(*args, **kwargs):
+        raise AssertionError("invalid schedule times must not reach MythTV")
+
+    monkeypatch.setattr("mythtv_web.requests.get", unexpected_get)
+    response = (
+        create_app()
+        .test_client()
+        .post(
+            "/api/schedules",
+            json={"channel_id": 1001, "start_time": 12345},
+            headers={"X-Authenticated-User": "viewer"},
+        )
+    )
+
+    assert response.status_code == 400
+
+
+def test_schedule_creates_a_single_record_rule(monkeypatch):
+    captured = {"calls": []}
+
+    class LookupResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"RecRule": {"Id": 0, "Title": "Example", "ChanId": 1001}}
+
+    class CreateResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"int": 314}
+
+    def fake_get(url, **kwargs):
+        captured["calls"].append(("get", url, kwargs))
+        return LookupResponse()
+
+    def fake_post(url, **kwargs):
+        captured["calls"].append(("post", url, kwargs))
+        return CreateResponse()
+
+    monkeypatch.setattr("mythtv_web.requests.get", fake_get)
+    monkeypatch.setattr("mythtv_web.requests.post", fake_post)
+    response = (
+        create_app()
+        .test_client()
+        .post(
+            "/api/schedules",
+            json={"channel_id": 1001, "start_time": "2026-10-04T15:00:00Z"},
+            headers={"X-Authenticated-User": "viewer"},
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.json == {"scheduled": True, "existing": False, "rule_id": 314}
+    assert captured["calls"][1][2]["json"]["Type"] == "Record One"
+    assert captured["calls"][1][1] == "http://127.0.0.1:6544/Dvr/AddRecordSchedule"
 
 
 def test_program_list_is_proxied_with_pagination(monkeypatch):

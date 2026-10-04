@@ -7,6 +7,7 @@ import shutil
 import signal
 import subprocess
 import time
+from datetime import datetime, timedelta, timezone
 from fractions import Fraction
 from functools import lru_cache
 from pathlib import Path
@@ -28,6 +29,16 @@ PRIMARY_RECORDING_GROUP = "Seasons"
 ACTIVE_RECORDING_GROUPS = {"Default", PRIMARY_RECORDING_GROUP}
 RECORDINGS_PAGE_SIZE = 5000
 RECORDINGS_CACHE_SECONDS = 120
+
+
+def _parse_api_time(value: str | None) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def _title_sort_key(title: str) -> tuple:
@@ -318,6 +329,152 @@ def create_app() -> Flask:
             total=payload.get("TotalAvailable", 0),
             as_of=payload.get("AsOf"),
         )
+
+    @app.get("/api/backend-status")
+    def backend_status():
+        try:
+            response = requests.get(
+                f"{app.config['MYTHTV_BACKEND_URL']}/Status/GetBackendStatus",
+                headers={"Accept": "application/json"},
+                timeout=app.config["MYTHTV_TIMEOUT"],
+            )
+            response.raise_for_status()
+            payload = response.json().get("BackendStatus")
+        except (requests.RequestException, ValueError) as error:
+            app.logger.warning("MythTV backend-status request failed: %s", error)
+            return jsonify(error="Could not load MythTV backend status"), 502
+
+        if not isinstance(payload, dict):
+            return jsonify(error="MythTV returned an invalid backend status"), 502
+        return jsonify(status=payload)
+
+    @app.get("/api/upcoming")
+    def upcoming():
+        start_index = max(0, request.args.get("start", default=0, type=int))
+        page_count = min(100, max(1, request.args.get("count", default=40, type=int)))
+        try:
+            response = requests.get(
+                f"{app.config['MYTHTV_BACKEND_URL']}/Dvr/GetUpcomingList",
+                params={"StartIndex": start_index, "Count": page_count},
+                headers={"Accept": "application/json"},
+                timeout=app.config["MYTHTV_TIMEOUT"],
+            )
+            response.raise_for_status()
+            payload = response.json().get("ProgramList", {})
+        except (requests.RequestException, ValueError) as error:
+            app.logger.warning("MythTV upcoming-list request failed: %s", error)
+            return jsonify(error="Could not load upcoming recordings"), 502
+
+        return jsonify(
+            programs=payload.get("Programs", []),
+            start=payload.get("StartIndex", 0),
+            count=payload.get("Count", 0),
+            total=payload.get("TotalAvailable", 0),
+        )
+
+    @app.get("/api/guide")
+    def guide():
+        start_time = request.args.get("start", "")
+        end_time = request.args.get("end", "")
+        parsed_start = _parse_api_time(start_time)
+        parsed_end = _parse_api_time(end_time)
+        if (
+            parsed_start is None
+            or parsed_end is None
+            or parsed_end <= parsed_start
+            or parsed_end - parsed_start > timedelta(hours=6)
+        ):
+            return (
+                jsonify(error="A valid guide window of up to six hours is required"),
+                400,
+            )
+
+        try:
+            response = requests.get(
+                f"{app.config['MYTHTV_BACKEND_URL']}/Guide/GetProgramGuide",
+                params={"StartTime": start_time, "EndTime": end_time},
+                headers={"Accept": "application/json"},
+                timeout=app.config["MYTHTV_TIMEOUT"],
+            )
+            response.raise_for_status()
+            payload = response.json().get("ProgramGuide")
+        except (requests.RequestException, ValueError) as error:
+            app.logger.warning("MythTV program-guide request failed: %s", error)
+            return jsonify(error="Could not load the MythTV program guide"), 502
+
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("Channels"), list
+        ):
+            return jsonify(error="MythTV returned an invalid program guide"), 502
+        return jsonify(
+            channels=payload["Channels"],
+            start=payload.get("StartTime"),
+            end=payload.get("EndTime"),
+            total=payload.get("TotalAvailable", 0),
+            as_of=payload.get("AsOf"),
+        )
+
+    @app.post("/api/schedules")
+    def schedule_recording():
+        if not request.headers.get("X-Authenticated-User", "").strip():
+            return jsonify(error="An Apache-authenticated user is required"), 401
+
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify(error="A channel and program start time are required"), 400
+        channel_id = payload.get("channel_id")
+        start_time = payload.get("start_time")
+        if (
+            type(channel_id) is not int
+            or channel_id <= 0
+            or _parse_api_time(start_time) is None
+        ):
+            return (
+                jsonify(error="A valid channel and program start time are required"),
+                400,
+            )
+
+        backend_url = app.config["MYTHTV_BACKEND_URL"]
+        request_options = {
+            "headers": {"Accept": "application/json"},
+            "timeout": app.config["MYTHTV_TIMEOUT"],
+        }
+        try:
+            lookup = requests.get(
+                f"{backend_url}/Dvr/GetRecordSchedule",
+                params={
+                    "RecordId": 0,
+                    "Template": "",
+                    "RecordedId": 0,
+                    "ChanId": channel_id,
+                    "StartTime": start_time,
+                    "MakeOverride": False,
+                },
+                **request_options,
+            )
+            lookup.raise_for_status()
+            rule = lookup.json().get("RecRule")
+            if not isinstance(rule, dict):
+                return jsonify(error="MythTV returned an invalid recording rule"), 502
+            if int(rule.get("Id") or 0) > 0:
+                return jsonify(scheduled=True, existing=True, rule_id=rule["Id"])
+
+            rule["Type"] = "Record One"
+            created = requests.post(
+                f"{backend_url}/Dvr/AddRecordSchedule",
+                json=rule,
+                **request_options,
+            )
+            created.raise_for_status()
+            result = created.json()
+            rule_id = result.get("int") if isinstance(result, dict) else None
+        except (requests.RequestException, ValueError, TypeError) as error:
+            app.logger.warning("MythTV schedule request failed: %s", error)
+            return jsonify(error="Could not schedule this MythTV program"), 502
+
+        if not isinstance(rule_id, int) or rule_id <= 0:
+            return jsonify(error="MythTV did not create the recording schedule"), 502
+        return jsonify(scheduled=True, existing=False, rule_id=rule_id)
 
     @app.get("/api/program-groups")
     def program_groups():
