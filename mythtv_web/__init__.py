@@ -825,6 +825,10 @@ def create_app() -> Flask:
         ):
             return jsonify(error="Invalid artwork URL"), 400
 
+        if parsed_url.path == "/Content/GetRecordingArtwork":
+            parameters.pop("Width", None)
+            parameters.pop("Height", None)
+
         try:
             upstream = requests.get(
                 f"{app.config['MYTHTV_BACKEND_URL']}{parsed_url.path}",

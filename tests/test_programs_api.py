@@ -257,7 +257,10 @@ def test_recording_artwork_proxy_accepts_mythtv_artwork_urls(monkeypatch):
     monkeypatch.setattr("mythtv_web.requests.get", fake_get)
     app = create_app()
     app.config["MYTHTV_BACKEND_URL"] = "http://backend:6544"
-    image_url = "/Content/GetRecordingArtwork?InetRef=tt1234&Type=coverart&Season=2"
+    image_url = (
+        "/Content/GetRecordingArtwork?InetRef=tt1234&Type=coverart&Season=2"
+        "&Width=320&Height=480"
+    )
     response = app.test_client().get(
         f"/api/artwork?url={image_url.replace('&', '%26')}"
     )

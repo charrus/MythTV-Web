@@ -345,7 +345,7 @@ input {
   width: 100%;
   aspect-ratio: 16 / 9;
   border-radius: var(--radius);
-  object-fit: cover;
+  object-fit: contain;
   background: #101820;
 }
 
@@ -515,7 +515,7 @@ input {
   height: 100%;
   flex: 0 0 38px;
   border-radius: 2px;
-  object-fit: cover;
+  object-fit: contain;
   background: #14212b;
 }
 
@@ -1251,12 +1251,7 @@ h1 {
 .poster img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  transition: transform 300ms ease;
-}
-
-.program-card:hover .poster img {
-  transform: scale(1.035);
+  object-fit: contain;
 }
 
 .group-open {
