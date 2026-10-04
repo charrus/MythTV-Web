@@ -200,6 +200,78 @@ def test_guide_is_proxied_for_a_valid_window(monkeypatch):
     }
 
 
+def test_channel_icon_is_proxied_from_mythtv(monkeypatch):
+    captured = {}
+
+    class Response:
+        content = b"icon bytes"
+        headers = {"Content-Type": "image/png"}
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("mythtv_web.requests.get", fake_get)
+    app = create_app()
+    app.config["MYTHTV_BACKEND_URL"] = "http://backend:6544"
+    response = app.test_client().get("/api/channel-icon?filename=one_ca.png")
+
+    assert response.status_code == 200
+    assert response.data == b"icon bytes"
+    assert response.content_type == "image/png"
+    assert captured["url"] == "http://backend:6544/Guide/GetChannelIcon"
+    assert captured["params"] == {"FileName": "one_ca.png"}
+
+
+def test_channel_icon_proxy_rejects_path_traversal(monkeypatch):
+    def unexpected_get(*args, **kwargs):
+        raise AssertionError("invalid icon paths must not reach MythTV")
+
+    monkeypatch.setattr("mythtv_web.requests.get", unexpected_get)
+    response = (
+        create_app().test_client().get("/api/channel-icon?filename=..%2Fsecret.png")
+    )
+
+    assert response.status_code == 400
+
+
+def test_recording_artwork_proxy_accepts_mythtv_artwork_urls(monkeypatch):
+    captured = {}
+
+    class Response:
+        content = b"artwork bytes"
+        headers = {"Content-Type": "image/jpeg"}
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("mythtv_web.requests.get", fake_get)
+    app = create_app()
+    app.config["MYTHTV_BACKEND_URL"] = "http://backend:6544"
+    image_url = "/Content/GetRecordingArtwork?InetRef=tt1234&Type=coverart&Season=2"
+    response = app.test_client().get(
+        f"/api/artwork?url={image_url.replace('&', '%26')}"
+    )
+
+    assert response.status_code == 200
+    assert response.data == b"artwork bytes"
+    assert captured["url"] == "http://backend:6544/Content/GetRecordingArtwork"
+    assert captured["params"] == {
+        "InetRef": "tt1234",
+        "Type": "coverart",
+        "Season": "2",
+    }
+
+
 def test_guide_rejects_a_window_over_six_hours(monkeypatch):
     def unexpected_get(*args, **kwargs):
         raise AssertionError("invalid guide ranges must not reach MythTV")

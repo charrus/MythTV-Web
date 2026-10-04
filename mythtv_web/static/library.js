@@ -23,6 +23,7 @@ const deleteButton = document.querySelector("#delete-confirm-button");
 const deleteCancelButton = document.querySelector("#delete-dialog-cancel");
 const deleteStatus = document.querySelector("#delete-status");
 const playerStatus = document.querySelector("#player-status");
+const playerRecordButton = document.querySelector("#player-record-program");
 const playbackSeek = document.querySelector("#playback-seek");
 const smartSkip = document.querySelector("#smart-skip");
 const skipAdButton = document.querySelector("#skip-ad");
@@ -368,6 +369,14 @@ async function openPlayer(program, startMode = "resume") {
   const recordedId = program.Recording?.RecordedId;
   if (!recordedId) return;
   activeRecording = program;
+  if (playerRecordButton) {
+    setScheduleButtonLabel(playerRecordButton, "Record this program");
+    const endTime = Date.parse(program.EndTime || "");
+    playerRecordButton.disabled =
+      !Number(program.Channel?.ChanId)
+      || !program.StartTime
+      || (Number.isFinite(endTime) && endTime <= Date.now());
+  }
   window.clearInterval(liveRecordingTimer);
   liveRecordingTimer = null;
   setForwardSkipMode(false);
@@ -1163,7 +1172,7 @@ function makeScheduleButton(program, channelId, statusElement) {
 
 async function scheduleProgram(program, channelId, button, statusElement) {
   button.disabled = true;
-  button.textContent = "Scheduling…";
+  setScheduleButtonLabel(button, "Scheduling…");
   statusElement.textContent = "Sending schedule to MythTV…";
   try {
     const result = await requestJson("/api/schedules", {
@@ -1174,17 +1183,23 @@ async function scheduleProgram(program, channelId, button, statusElement) {
         start_time: program.StartTime,
       }),
     });
-    button.textContent = result.existing ? "Already scheduled" : "Scheduled";
+    setScheduleButtonLabel(button, result.existing ? "Already scheduled" : "Scheduled");
     statusElement.textContent = result.existing
       ? "This program already has a recording rule."
       : "Recording scheduled in MythTV.";
     const upcomingButton = document.querySelector('[data-view="upcoming"]');
-    if (upcomingButton.dataset.loaded === "true") loadUpcoming();
+    if (upcomingButton?.dataset.loaded === "true") loadUpcoming();
   } catch (error) {
     button.disabled = false;
-    button.textContent = "Record this program";
+    setScheduleButtonLabel(button, "Record this program");
     statusElement.textContent = error.message;
   }
+}
+
+function setScheduleButtonLabel(button, label) {
+  const text = button.querySelector("[data-schedule-label]");
+  if (text) text.textContent = label;
+  else button.textContent = label;
 }
 
 function renderChannelPrograms(container, channels, onlyCurrent, statusElement) {
@@ -1204,14 +1219,47 @@ function renderChannelPrograms(container, channels, onlyCurrent, statusElement) 
     const channelTitle = channel.ChanNum
       ? `${channel.ChanNum} · ${channel.CallSign || channel.ChannelName || "Channel"}`
       : channel.CallSign || channel.ChannelName || "Channel";
-    row.append(makeElement("h2", "guide-channel-title", channelTitle));
+    const channelHeader = makeElement("div", "guide-channel-heading");
+    const fallback = makeElement(
+      "span",
+      "guide-channel-icon-fallback",
+      (channel.CallSign || channel.ChanNum || "TV").slice(0, 2),
+    );
+    const iconFilename = channel.Icon || "";
+    if (/^[A-Za-z0-9_. -]{1,255}$/.test(iconFilename)) {
+      const icon = makeElement("img", "guide-channel-icon");
+      icon.src = appPath(`/api/channel-icon?filename=${encodeURIComponent(iconFilename)}`);
+      icon.alt = "";
+      icon.loading = "lazy";
+      icon.addEventListener("load", () => { fallback.hidden = true; }, { once: true });
+      icon.addEventListener("error", () => icon.remove(), { once: true });
+      channelHeader.append(icon);
+    }
+    channelHeader.append(fallback, makeElement("h2", "guide-channel-title", channelTitle));
+    row.append(channelHeader);
     const programList = makeElement("div", "guide-programs");
     for (const program of programs) {
       const card = makeElement("article", "guide-program");
+      const programArtwork = artworkUrl(program);
+      if (programArtwork) {
+        const image = makeElement("img", "guide-program-art");
+        image.src = programArtwork;
+        image.alt = "";
+        image.loading = "lazy";
+        image.addEventListener("error", () => image.remove(), { once: true });
+        card.append(image);
+      }
       card.append(makeElement("time", "guide-program-time", formatProgramTime(program.StartTime, program.EndTime)));
       card.append(makeElement("h3", "guide-program-title", program.Title || "Untitled program"));
       if (program.SubTitle) card.append(makeElement("p", "guide-program-subtitle", program.SubTitle));
       if (program.Category) card.append(makeElement("p", "guide-program-category", program.Category));
+      const recording = program.Recording || {};
+      if (recording.StatusName?.toLowerCase() === "recording" && Number(recording.RecordedId) > 0) {
+        const watchButton = makeElement("button", "schedule-button", "Watch in player");
+        watchButton.type = "button";
+        watchButton.addEventListener("click", () => openPlayer(program));
+        card.append(watchButton);
+      }
       card.append(makeScheduleButton(program, channel.ChanId, statusElement));
       programList.append(card);
       rendered += 1;
@@ -1337,6 +1385,15 @@ function activateView(name) {
   if (name === "guide") loadGuide();
   if (name === "status") loadStatus();
   window.history.replaceState(null, "", `${window.location.pathname}#${name}`);
+}
+
+if (playerRecordButton) {
+  playerRecordButton.addEventListener("click", () => {
+    const channelId = Number(activeRecording?.Channel?.ChanId || 0);
+    if (activeRecording && channelId > 0) {
+      scheduleProgram(activeRecording, channelId, playerRecordButton, playerStatus);
+    }
+  });
 }
 
 if (viewButtons.length) {

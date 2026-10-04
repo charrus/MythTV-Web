@@ -238,8 +238,33 @@ input {
 }
 
 .guide-channel-title {
-  padding-top: 4px;
+  min-width: 0;
   color: var(--accent);
+}
+
+.guide-channel-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.guide-channel-icon,
+.guide-channel-icon-fallback {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  object-fit: contain;
+  background: var(--surface);
+}
+
+.guide-channel-icon-fallback {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .guide-programs {
@@ -254,6 +279,14 @@ input {
   display: grid;
   align-content: start;
   gap: 7px;
+}
+
+.guide-program-art {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius);
+  object-fit: cover;
+  background: #101820;
 }
 
 .guide-program-title {
@@ -1132,6 +1165,21 @@ h1 {
 .player-button {
   padding: 0;
   cursor: pointer;
+}
+
+.player-record-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+}
+
+.player-record-icon {
+  width: 16px;
+  height: 16px;
+  color: #e47b72;
+  fill: currentColor;
+  stroke: none;
 }
 
 .player-button:hover:not(:disabled) {

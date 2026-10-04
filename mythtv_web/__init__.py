@@ -612,24 +612,67 @@ def create_app() -> Flask:
     def artwork():
         source_url = request.args.get("url", "")
         parsed_url = urlsplit(source_url)
-        parameters = dict(parse_qsl(parsed_url.query, keep_blank_values=True))
+        pairs = parse_qsl(parsed_url.query, keep_blank_values=True)
+        parameters = dict(pairs)
+        valid_image_file = parsed_url.path == "/Content/GetImageFile" and set(
+            parameters
+        ) == {"StorageGroup", "FileName"}
+        valid_program_artwork = (
+            parsed_url.path == "/Content/GetRecordingArtwork"
+            and len(parameters) == len(pairs)
+            and set(parameters).issubset(
+                {"Inetref", "InetRef", "Type", "Season", "Width", "Height"}
+            )
+            and ("Inetref" in parameters) != ("InetRef" in parameters)
+            and re.fullmatch(
+                r"[A-Za-z0-9_-]{1,64}",
+                parameters.get("Inetref", parameters.get("InetRef", "")),
+            )
+            and parameters.get("Type") in {"coverart", "fanart", "banner"}
+        )
         if (
             parsed_url.scheme
             or parsed_url.netloc
-            or parsed_url.path != "/Content/GetImageFile"
-            or set(parameters) != {"StorageGroup", "FileName"}
+            or len(parameters) != len(pairs)
+            or not (valid_image_file or valid_program_artwork)
         ):
             return jsonify(error="Invalid artwork URL"), 400
 
         try:
             upstream = requests.get(
-                f"{app.config['MYTHTV_BACKEND_URL']}/Content/GetImageFile",
+                f"{app.config['MYTHTV_BACKEND_URL']}{parsed_url.path}",
                 params=parameters,
                 timeout=app.config["MYTHTV_TIMEOUT"],
             )
             upstream.raise_for_status()
         except requests.RequestException as error:
             app.logger.info("MythTV artwork request failed: %s", error)
+            return Response(status=404)
+
+        return Response(
+            upstream.content,
+            content_type=upstream.headers.get("Content-Type", "image/jpeg"),
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    @app.get("/api/channel-icon")
+    def channel_icon():
+        filename = request.args.get("filename", "")
+        if not re.fullmatch(r"[A-Za-z0-9_. -]{1,255}", filename) or filename in {
+            ".",
+            "..",
+        }:
+            return jsonify(error="Invalid channel icon filename"), 400
+
+        try:
+            upstream = requests.get(
+                f"{app.config['MYTHTV_BACKEND_URL']}/Guide/GetChannelIcon",
+                params={"FileName": filename},
+                timeout=app.config["MYTHTV_TIMEOUT"],
+            )
+            upstream.raise_for_status()
+        except requests.RequestException as error:
+            app.logger.info("MythTV channel icon request failed: %s", error)
             return Response(status=404)
 
         return Response(
