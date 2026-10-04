@@ -564,7 +564,11 @@ def test_program_groups_aggregate_titles_and_reuse_full_list_cache(
                     {
                         "Type": "coverart",
                         "URL": "/Content/GetImageFile?StorageGroup=Coverart&FileName=%2Fcover.jpg",
-                    }
+                    },
+                    {
+                        "Type": "fanart",
+                        "URL": "/Content/GetImageFile?StorageGroup=Fanart&FileName=%2Ffanart.jpg",
+                    },
                 ]
             },
         },
@@ -581,6 +585,14 @@ def test_program_groups_aggregate_titles_and_reuse_full_list_cache(
             "Recording": {"RecGroup": "Seasons", "RecordedId": 42},
             "StartTime": "2026-10-01T10:00:00Z",
             "ProgramFlagNames": "WATCHED",
+            "Artwork": {
+                "ArtworkInfos": [
+                    {
+                        "Type": "coverart",
+                        "URL": "/Content/GetImageFile?StorageGroup=Coverart&FileName=%2Ffilm-cover.jpg",
+                    }
+                ]
+            },
         },
         {
             "Title": "8 Out Of 10 Cats Does Countdown",
@@ -632,13 +644,17 @@ def test_program_groups_aggregate_titles_and_reuse_full_list_cache(
     )
     assert series_group["recording_count"] == 2
     assert series_group["watched_count"] == 1
-    assert series_group["artwork_url"].startswith("/Content/GetImageFile")
+    assert series_group["artwork_url"] == (
+        "/Content/GetImageFile?StorageGroup=Fanart&FileName=%2Ffanart.jpg"
+    )
     film_group = next(
         group
         for group in groups_response.json["groups"]
         if group["title"] == "One-off film"
     )
-    assert film_group["artwork_url"] is None
+    assert film_group["artwork_url"] == (
+        "/Content/GetImageFile?StorageGroup=Coverart&FileName=%2Ffilm-cover.jpg"
+    )
     assert film_group["preview_url"] == "/api/preview?recorded_id=42"
     assert (
         next(

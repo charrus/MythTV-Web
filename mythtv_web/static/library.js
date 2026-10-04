@@ -526,9 +526,10 @@ function isWatched(program) {
 }
 
 function artworkUrl(program) {
-  const artwork = program.Artwork?.ArtworkInfos?.find(
-    (item) => item.Type === "coverart" || item.Type === "fanart",
-  );
+  const artworkInfos = program.Artwork?.ArtworkInfos || [];
+  const artwork =
+    artworkInfos.find((item) => item.Type === "fanart" && item.URL) ||
+    artworkInfos.find((item) => item.Type === "coverart" && item.URL);
   return artwork?.URL
     ? appPath(`/api/artwork?url=${encodeURIComponent(artwork.URL)}`)
     : "";

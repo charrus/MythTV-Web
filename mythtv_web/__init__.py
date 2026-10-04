@@ -677,21 +677,28 @@ def create_app() -> Flask:
             if (program.get("Recording") or {}).get("RecGroup")
             in ACTIVE_RECORDING_GROUPS
         ]
+
+        def group_artwork_url(program):
+            artwork = (program.get("Artwork") or {}).get("ArtworkInfos") or []
+            for image_type in ("fanart", "coverart"):
+                image_url = next(
+                    (
+                        item.get("URL")
+                        for item in artwork
+                        if item.get("Type") == image_type and item.get("URL")
+                    ),
+                    None,
+                )
+                if image_url:
+                    return image_url
+            return None
+
         groups = {}
         for program in default_programs:
             title = program.get("Title") or "Untitled recording"
             latest_start = program.get("StartTime") or ""
             group = groups.get(title)
             if group is None:
-                artwork = (program.get("Artwork") or {}).get("ArtworkInfos") or []
-                cover = next(
-                    (
-                        item.get("URL")
-                        for item in artwork
-                        if item.get("Type") == "coverart"
-                    ),
-                    None,
-                )
                 group = {
                     "title": title,
                     "recording_count": 0,
@@ -699,20 +706,12 @@ def create_app() -> Flask:
                     "latest_start": latest_start,
                     "channel_name": (program.get("Channel") or {}).get("ChannelName"),
                     "category": program.get("Category"),
-                    "artwork_url": cover,
+                    "artwork_url": group_artwork_url(program),
                     "preview_url": _recording_preview_url(program),
                 }
                 groups[title] = group
             elif not group["artwork_url"]:
-                artwork = (program.get("Artwork") or {}).get("ArtworkInfos") or []
-                group["artwork_url"] = next(
-                    (
-                        item.get("URL")
-                        for item in artwork
-                        if item.get("Type") == "coverart"
-                    ),
-                    None,
-                )
+                group["artwork_url"] = group_artwork_url(program)
 
             group["recording_count"] += 1
             if "WATCHED" in (program.get("ProgramFlagNames") or "").split("|"):
