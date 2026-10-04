@@ -321,7 +321,7 @@ def test_schedule_rejects_non_string_start_time(monkeypatch):
     assert response.status_code == 400
 
 
-def test_schedule_creates_a_single_record_rule(monkeypatch):
+def test_schedule_forwards_options_and_defaults_to_record_one(monkeypatch):
     captured = {"calls": []}
 
     class LookupResponse:
@@ -348,20 +348,120 @@ def test_schedule_creates_a_single_record_rule(monkeypatch):
 
     monkeypatch.setattr("mythtv_web.requests.get", fake_get)
     monkeypatch.setattr("mythtv_web.requests.post", fake_post)
+    client = create_app().test_client()
+    response = client.post(
+        "/api/schedules",
+        json={
+            "channel_id": 1001,
+            "start_time": "2026-10-04T15:00:00Z",
+            "rule": {"Type": "Record All", "RecPriority": 7, "Id": 999},
+        },
+        headers={"X-Authenticated-User": "viewer"},
+    )
+    default_response = client.post(
+        "/api/schedules",
+        json={"channel_id": 1001, "start_time": "2026-10-04T15:00:00Z"},
+        headers={"X-Authenticated-User": "viewer"},
+    )
+
+    assert response.status_code == 200
+    assert response.json == {"scheduled": True, "existing": False, "rule_id": 314}
+    assert captured["calls"][1][2]["json"]["Type"] == "Record All"
+    assert captured["calls"][1][2]["json"]["RecPriority"] == 7
+    assert captured["calls"][1][2]["json"]["Id"] == 0
+    assert captured["calls"][1][2]["json"]["ChanId"] == 1001
+    assert captured["calls"][1][1] == "http://127.0.0.1:6544/Dvr/AddRecordSchedule"
+    assert default_response.status_code == 200
+    assert captured["calls"][3][2]["json"]["Type"] == "Record One"
+
+
+def test_schedule_options_load_rule_and_mythtv_choices(monkeypatch):
+    calls = []
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.payload
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        if url.endswith("GetRecordSchedule"):
+            return Response({"RecRule": {"Id": 1135, "Type": "Record All"}})
+        return Response({url.rsplit("/", 1)[-1]: []})
+
+    monkeypatch.setattr("mythtv_web.requests.get", fake_get)
+    app = create_app()
+    app.config["MYTHTV_BACKEND_URL"] = "http://backend:6544"
+    response = app.test_client().get("/api/schedules/options?record_id=1135")
+
+    assert response.status_code == 200
+    assert response.json["rule"] == {"Id": 1135, "Type": "Record All"}
+    assert len(calls) == 6
+    assert calls[0][1]["params"] == {"RecordId": 1135}
+    group_call = next(call for call in calls if call[0].endswith("GetRecGroupList"))
+    assert group_call[1]["params"] == {"UsedBy": "schedule"}
+
+
+def test_schedule_update_requires_an_authenticated_user(monkeypatch):
+    def unexpected_get(*args, **kwargs):
+        raise AssertionError("unauthenticated updates must not reach MythTV")
+
+    monkeypatch.setattr("mythtv_web.requests.get", unexpected_get)
+    response = (
+        create_app()
+        .test_client()
+        .post("/api/schedules/1135", json={"rule": {"RecPriority": 4}})
+    )
+
+    assert response.status_code == 401
+
+
+def test_schedule_update_posts_mutable_rule_options(monkeypatch):
+    calls = []
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.payload
+
+    def fake_get(url, **kwargs):
+        calls.append(("get", url, kwargs))
+        return Response(
+            {"RecRule": {"Id": 1135, "Type": "Record All", "RecPriority": 1}}
+        )
+
+    def fake_post(url, **kwargs):
+        calls.append(("post", url, kwargs))
+        return Response({"bool": True})
+
+    monkeypatch.setattr("mythtv_web.requests.get", fake_get)
+    monkeypatch.setattr("mythtv_web.requests.post", fake_post)
     response = (
         create_app()
         .test_client()
         .post(
-            "/api/schedules",
-            json={"channel_id": 1001, "start_time": "2026-10-04T15:00:00Z"},
+            "/api/schedules/1135",
+            json={"rule": {"Type": "Record Weekly", "RecPriority": 5}},
             headers={"X-Authenticated-User": "viewer"},
         )
     )
 
     assert response.status_code == 200
-    assert response.json == {"scheduled": True, "existing": False, "rule_id": 314}
-    assert captured["calls"][1][2]["json"]["Type"] == "Record One"
-    assert captured["calls"][1][1] == "http://127.0.0.1:6544/Dvr/AddRecordSchedule"
+    assert response.json == {"updated": True, "rule_id": 1135}
+    assert calls[1][1] == "http://127.0.0.1:6544/Dvr/UpdateRecordSchedule"
+    assert calls[1][2]["json"]["RecordId"] == 1135
+    assert calls[1][2]["json"]["Type"] == "Record Weekly"
+    assert calls[1][2]["json"]["RecPriority"] == 5
 
 
 def test_program_list_is_proxied_with_pagination(monkeypatch):

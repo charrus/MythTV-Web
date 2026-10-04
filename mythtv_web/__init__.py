@@ -29,6 +29,50 @@ PRIMARY_RECORDING_GROUP = "Seasons"
 ACTIVE_RECORDING_GROUPS = {"Default", PRIMARY_RECORDING_GROUP}
 RECORDINGS_PAGE_SIZE = 5000
 RECORDINGS_CACHE_SECONDS = 120
+RECORDING_RULE_FIELDS = (
+    "Title",
+    "SubTitle",
+    "Description",
+    "Category",
+    "StartTime",
+    "EndTime",
+    "SeriesId",
+    "ProgramId",
+    "ChanId",
+    "CallSign",
+    "FindDay",
+    "FindTime",
+    "Inactive",
+    "Season",
+    "Episode",
+    "Inetref",
+    "Type",
+    "SearchType",
+    "RecPriority",
+    "PreferredInput",
+    "StartOffset",
+    "EndOffset",
+    "DupMethod",
+    "DupIn",
+    "NewEpisOnly",
+    "Filter",
+    "RecProfile",
+    "RecGroup",
+    "StorageGroup",
+    "PlayGroup",
+    "AutoExpire",
+    "MaxEpisodes",
+    "MaxNewest",
+    "AutoCommflag",
+    "AutoTranscode",
+    "AutoMetaLookup",
+    "AutoUserJob1",
+    "AutoUserJob2",
+    "AutoUserJob3",
+    "AutoUserJob4",
+    "Transcoder",
+    "AutoExtend",
+)
 
 
 def _parse_api_time(value: str | None) -> datetime | None:
@@ -414,6 +458,64 @@ def create_app() -> Flask:
             as_of=payload.get("AsOf"),
         )
 
+    @app.get("/api/schedules/options")
+    def schedule_options():
+        record_id = request.args.get("record_id", default=0, type=int)
+        channel_id = request.args.get("channel_id", default=0, type=int)
+        start_time = request.args.get("start_time", "")
+        if record_id > 0:
+            params = {"RecordId": record_id}
+        elif channel_id > 0 and _parse_api_time(start_time) is not None:
+            params = {
+                "RecordId": 0,
+                "Template": "",
+                "RecordedId": 0,
+                "ChanId": channel_id,
+                "StartTime": start_time,
+                "MakeOverride": False,
+            }
+        else:
+            return jsonify(error="A rule ID or program is required"), 400
+
+        backend_url = app.config["MYTHTV_BACKEND_URL"]
+        headers = {"Accept": "application/json"}
+        timeout = app.config["MYTHTV_TIMEOUT"]
+        try:
+            rule_response = requests.get(
+                f"{backend_url}/Dvr/GetRecordSchedule",
+                params=params,
+                headers=headers,
+                timeout=timeout,
+            )
+            rule_response.raise_for_status()
+            rule = rule_response.json().get("RecRule")
+            if not isinstance(rule, dict):
+                return jsonify(error="MythTV returned an invalid recording rule"), 502
+
+            choice_paths = {
+                "filters": "/Dvr/GetRecRuleFilterList",
+                "inputs": "/Dvr/GetInputList",
+                "recording_groups": "/Dvr/GetRecGroupList",
+                "storage_groups": "/Dvr/GetRecStorageGroupList",
+                "play_groups": "/Dvr/GetPlayGroupList",
+            }
+            choices = {}
+            for key, path in choice_paths.items():
+                params = {"UsedBy": "schedule"} if key == "recording_groups" else None
+                response = requests.get(
+                    f"{backend_url}{path}",
+                    params=params,
+                    headers=headers,
+                    timeout=timeout,
+                )
+                response.raise_for_status()
+                choices[key] = response.json()
+        except (requests.RequestException, ValueError, TypeError) as error:
+            app.logger.warning("MythTV schedule-options request failed: %s", error)
+            return jsonify(error="Could not load recording options"), 502
+
+        return jsonify(rule=rule, choices=choices)
+
     @app.post("/api/schedules")
     def schedule_recording():
         if not request.headers.get("X-Authenticated-User", "").strip():
@@ -433,6 +535,9 @@ def create_app() -> Flask:
                 jsonify(error="A valid channel and program start time are required"),
                 400,
             )
+        rule_options = payload.get("rule", {})
+        if not isinstance(rule_options, dict):
+            return jsonify(error="Recording options must be an object"), 400
 
         backend_url = app.config["MYTHTV_BACKEND_URL"]
         request_options = {
@@ -459,7 +564,22 @@ def create_app() -> Flask:
             if int(rule.get("Id") or 0) > 0:
                 return jsonify(scheduled=True, existing=True, rule_id=rule["Id"])
 
-            rule["Type"] = "Record One"
+            rule.update(
+                {
+                    key: value
+                    for key, value in rule_options.items()
+                    if key in RECORDING_RULE_FIELDS
+                }
+            )
+            selected_channel = rule_options.get("ChanId", channel_id)
+            rule["ChanId"] = (
+                selected_channel
+                if type(selected_channel) is int and selected_channel > 0
+                else channel_id
+            )
+            rule["StartTime"] = rule_options.get("StartTime", start_time)
+            if "Type" not in rule_options:
+                rule["Type"] = "Record One"
             created = requests.post(
                 f"{backend_url}/Dvr/AddRecordSchedule",
                 json=rule,
@@ -475,6 +595,52 @@ def create_app() -> Flask:
         if not isinstance(rule_id, int) or rule_id <= 0:
             return jsonify(error="MythTV did not create the recording schedule"), 502
         return jsonify(scheduled=True, existing=False, rule_id=rule_id)
+
+    @app.post("/api/schedules/<int:record_id>")
+    def update_schedule(record_id):
+        if not request.headers.get("X-Authenticated-User", "").strip():
+            return jsonify(error="An Apache-authenticated user is required"), 401
+
+        payload = request.get_json(silent=True)
+        rule_options = payload.get("rule") if isinstance(payload, dict) else None
+        if not isinstance(rule_options, dict):
+            return jsonify(error="Recording options must be an object"), 400
+
+        backend_url = app.config["MYTHTV_BACKEND_URL"]
+        headers = {"Accept": "application/json"}
+        timeout = app.config["MYTHTV_TIMEOUT"]
+        try:
+            lookup = requests.get(
+                f"{backend_url}/Dvr/GetRecordSchedule",
+                params={"RecordId": record_id},
+                headers=headers,
+                timeout=timeout,
+            )
+            lookup.raise_for_status()
+            rule = lookup.json().get("RecRule")
+            if not isinstance(rule, dict) or int(rule.get("Id") or 0) != record_id:
+                return jsonify(error="Recording rule not found"), 404
+            rule.update(
+                {
+                    key: value
+                    for key, value in rule_options.items()
+                    if key in RECORDING_RULE_FIELDS
+                }
+            )
+            updated = requests.post(
+                f"{backend_url}/Dvr/UpdateRecordSchedule",
+                json={"RecordId": record_id, **rule},
+                headers=headers,
+                timeout=timeout,
+            )
+            updated.raise_for_status()
+        except (requests.RequestException, ValueError, TypeError) as error:
+            app.logger.warning("MythTV schedule update failed: %s", error)
+            return jsonify(error="Could not update the MythTV recording rule"), 502
+
+        return jsonify(
+            updated=bool(updated.json().get("bool", True)), rule_id=record_id
+        )
 
     @app.get("/api/program-groups")
     def program_groups():

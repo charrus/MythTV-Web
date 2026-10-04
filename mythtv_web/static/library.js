@@ -1117,8 +1117,13 @@ const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
 const guideList = document.querySelector("#guide-list");
 const guideStatus = document.querySelector("#guide-status");
 const guideWindow = document.querySelector("#guide-window");
+const recordingDialog = document.querySelector("#recording-dialog");
+const recordingRuleForm = document.querySelector("#recording-rule-form");
+const recordingRuleFields = document.querySelector("#recording-rule-fields");
+const recordingDialogStatus = document.querySelector("#recording-dialog-status");
 const guideStartTime = new Date();
 guideStartTime.setMinutes(0, 0, 0);
+let editingSchedule = null;
 
 function makeElement(tagName, className, text) {
   const element = document.createElement(tagName);
@@ -1160,15 +1165,240 @@ function makeScheduleButton(program, channelId, statusElement) {
   const button = makeElement(
     "button",
     "schedule-button",
-    scheduled ? "Scheduled" : "Record this program",
+    scheduled ? "Edit rule" : "Record",
   );
   button.type = "button";
-  button.disabled = scheduled;
-  if (!scheduled) {
-    button.addEventListener("click", () => scheduleProgram(program, channelId, button, statusElement));
-  }
+  button.addEventListener("click", () => openRecordingEditor({
+    program,
+    channelId,
+    recordId: Number(program.Recording?.RecordId || 0),
+    statusElement,
+  }));
   return button;
 }
+
+function recordingFieldControl(field, value, choices) {
+  let control;
+  if (field.type === "select") {
+    control = document.createElement("select");
+    const options = field.options(choices);
+    if (value !== undefined && value !== null && !options.some((option) => String(option.value) === String(value))) {
+      options.unshift({ value, label: String(value) });
+    }
+    for (const item of options) {
+      const option = document.createElement("option");
+      option.value = String(item.value);
+      option.textContent = item.label;
+      control.append(option);
+    }
+  } else if (field.type === "textarea") {
+    control = document.createElement("textarea");
+    control.rows = 3;
+    control.value = value ?? "";
+  } else {
+    control = document.createElement("input");
+    control.type = field.type || "text";
+    if (field.type === "datetime-local" && value) {
+      const date = new Date(value);
+      control.value = Number.isNaN(date.getTime()) ? "" : new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    } else if (field.type === "time" && value) {
+      control.value = String(value).slice(0, 5);
+    } else if (field.type === "checkbox") {
+      control.checked = Boolean(value);
+    } else {
+      control.value = value ?? "";
+    }
+  }
+  control.dataset.ruleField = field.key;
+  if (field.type === "number") control.step = "1";
+  if (field.required) control.required = true;
+  return control;
+}
+
+function renderRecordingRuleFields(rule, choices) {
+  const recGroupOptions = choices.recording_groups?.RecGroupList || [];
+  const storageGroupOptions = choices.storage_groups?.RecStorageGroupList || [];
+  const playGroupOptions = choices.play_groups?.PlayGroupList || [];
+  const inputOptions = choices.inputs?.InputList?.Inputs || [];
+  const filters = choices.filters?.RecRuleFilterList?.RecRuleFilters || [];
+  const staticOptions = (values) => () => values.map((value) => ({ value, label: value }));
+  const fields = [
+    {
+      title: "Program",
+      fields: [
+        { key: "Title", label: "Title" },
+        { key: "SubTitle", label: "Subtitle" },
+        { key: "Description", label: "Description", type: "textarea" },
+        { key: "Category", label: "Category" },
+        { key: "StartTime", label: "Start time", type: "datetime-local", required: true },
+        { key: "EndTime", label: "End time", type: "datetime-local", required: true },
+        { key: "ChanId", label: "Channel ID", type: "number" },
+        { key: "CallSign", label: "Call sign" },
+        { key: "Season", label: "Season", type: "number" },
+        { key: "Episode", label: "Episode", type: "number" },
+        { key: "SeriesId", label: "Series ID" },
+        { key: "ProgramId", label: "Program ID" },
+        { key: "Inetref", label: "Internet reference" },
+      ],
+    },
+    {
+      title: "Recording rule",
+      fields: [
+        { key: "Type", label: "Record", type: "select", options: staticOptions(["Record One", "Record All", "Record Daily", "Record Weekly", "Single Record", "Override Recording", "Do not Record", "Recording Template"]) },
+        { key: "SearchType", label: "Search", type: "select", options: staticOptions(["None", "Title Search", "Keyword Search", "People Search", "Power Search", "Manual Search"]) },
+        { key: "Inactive", label: "Rule inactive", type: "checkbox" },
+        { key: "FindDay", label: "Find day", type: "number" },
+        { key: "FindTime", label: "Find time", type: "time" },
+        { key: "RecPriority", label: "Recording priority", type: "number" },
+        {
+          key: "PreferredInput",
+          label: "Preferred input",
+          type: "select",
+          options: () => [
+            { value: 0, label: "Any available input" },
+            ...inputOptions.map((input) => ({ value: input.Id, label: input.DisplayName || input.InputName || `Input ${input.Id}` })),
+          ],
+        },
+        { key: "StartOffset", label: "Start padding (minutes)", type: "number" },
+        { key: "EndOffset", label: "End padding (minutes)", type: "number" },
+        { key: "DupMethod", label: "Duplicate matching", type: "select", options: staticOptions(["None", "Subtitle", "Description", "Subtitle and Description", "Subtitle then Description"]) },
+        { key: "DupIn", label: "Check duplicates in", type: "select", options: staticOptions(["Current Recordings", "Previous Recordings", "All Recordings"]) },
+        { key: "NewEpisOnly", label: "New episodes only", type: "checkbox" },
+      ],
+    },
+    {
+      title: "Storage and limits",
+      fields: [
+        { key: "RecProfile", label: "Recording profile" },
+        { key: "RecGroup", label: "Recording group", type: "select", options: () => recGroupOptions.map((value) => ({ value, label: value })) },
+        { key: "StorageGroup", label: "Storage group", type: "select", options: () => storageGroupOptions.map((value) => ({ value, label: value })) },
+        { key: "PlayGroup", label: "Playback group", type: "select", options: () => playGroupOptions.map((value) => ({ value, label: value })) },
+        { key: "AutoExpire", label: "Allow automatic expiration", type: "checkbox" },
+        { key: "MaxEpisodes", label: "Maximum episodes", type: "number" },
+        { key: "MaxNewest", label: "Keep newest episodes", type: "checkbox" },
+        { key: "AutoExtend", label: "Automatic sports extension", type: "select", options: staticOptions(["None", "ESPN", "MLB"]) },
+        { key: "Transcoder", label: "Transcoder", type: "number" },
+      ],
+    },
+    {
+      title: "Filters and processing",
+      fields: [
+        { key: "Filter", label: "Rule filters", type: "filters" },
+        { key: "AutoCommflag", label: "Flag commercials", type: "checkbox" },
+        { key: "AutoTranscode", label: "Transcode after recording", type: "checkbox" },
+        { key: "AutoMetaLookup", label: "Look up metadata", type: "checkbox" },
+        ...[1, 2, 3, 4].map((job) => ({ key: `AutoUserJob${job}`, label: `Run user job ${job}`, type: "checkbox" })),
+      ],
+    },
+  ];
+
+  const sections = fields.map((section) => {
+    const element = makeElement("section", "recording-rule-section");
+    element.append(makeElement("h3", "recording-rule-section-title", section.title));
+    const grid = makeElement("div", "recording-rule-grid");
+    for (const field of section.fields) {
+      if (field.type === "filters") {
+        const fieldset = makeElement("fieldset", "recording-filter-fieldset");
+        fieldset.append(makeElement("legend", "recording-field-label", field.label));
+        const knownMask = filters.reduce((mask, filter) => mask | (1 << filter.Id), 0);
+        fieldset.dataset.unrepresentedMask = String((Number(rule.Filter) || 0) & ~knownMask);
+        for (const filter of filters) {
+          const label = makeElement("label", "recording-filter-option");
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.dataset.filterBit = String(filter.Id);
+          checkbox.checked = ((Number(rule.Filter) || 0) & (1 << filter.Id)) !== 0;
+          label.append(checkbox, document.createTextNode(filter.Description));
+          fieldset.append(label);
+        }
+        grid.append(fieldset);
+        continue;
+      }
+      const label = makeElement("label", field.type === "checkbox" ? "recording-toggle" : "recording-field");
+      const control = recordingFieldControl(field, rule[field.key], choices);
+      if (field.type === "checkbox") {
+        label.append(control, makeElement("span", "recording-field-label", field.label));
+      } else {
+        label.append(makeElement("span", "recording-field-label", field.label), control);
+      }
+      grid.append(label);
+    }
+    element.append(grid);
+    return element;
+  });
+  recordingRuleFields.replaceChildren(...sections);
+}
+
+async function openRecordingEditor({ program, channelId, recordId = 0, statusElement }) {
+  recordingDialogStatus.textContent = "Loading recording options…";
+  document.querySelector("#recording-dialog-title").textContent = recordId ? "Edit recording rule" : "Set up recording";
+  document.querySelector("#recording-dialog-subtitle").textContent = [program.Title, program.SubTitle].filter(Boolean).join(" · ");
+  document.querySelector("#recording-dialog-save").disabled = true;
+  recordingRuleFields.replaceChildren();
+  recordingDialog.showModal();
+  try {
+    const query = new URLSearchParams(recordId
+      ? { record_id: String(recordId) }
+      : { channel_id: String(channelId), start_time: program.StartTime });
+    const result = await requestJson(`/api/schedules/options?${query}`);
+    const rule = { ...result.rule };
+    if (!recordId && !Number(rule.Id || 0)) rule.Type = "Record One";
+    editingSchedule = { recordId, channelId, startTime: program.StartTime, statusElement };
+    renderRecordingRuleFields(rule, result.choices);
+    recordingDialogStatus.textContent = "Choose how MythTV should handle this program.";
+    document.querySelector("#recording-dialog-save").disabled = false;
+  } catch (error) {
+    recordingDialogStatus.textContent = error.message;
+  }
+}
+
+function collectRecordingRule() {
+  const rule = {};
+  for (const control of recordingRuleForm.querySelectorAll("[data-rule-field]")) {
+    const key = control.dataset.ruleField;
+    if (control.type === "checkbox") rule[key] = control.checked;
+    else if (control.type === "number") rule[key] = Number(control.value || 0);
+    else if (control.type === "datetime-local") rule[key] = new Date(control.value).toISOString();
+    else if (control.type === "time") rule[key] = control.value ? `${control.value}:00` : "00:00:00";
+    else rule[key] = control.value;
+  }
+  const filterSet = recordingRuleForm.querySelector(".recording-filter-fieldset");
+  if (filterSet) {
+    rule.Filter = Number(filterSet.dataset.unrepresentedMask) || 0;
+    for (const checkbox of filterSet.querySelectorAll("[data-filter-bit]")) {
+      if (checkbox.checked) rule.Filter |= 1 << Number(checkbox.dataset.filterBit);
+    }
+  }
+  return rule;
+}
+
+recordingRuleForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!editingSchedule || !recordingRuleForm.reportValidity()) return;
+  const saveButton = document.querySelector("#recording-dialog-save");
+  saveButton.disabled = true;
+  recordingDialogStatus.textContent = "Saving recording rule…";
+  try {
+    const { recordId, channelId, startTime, statusElement } = editingSchedule;
+    const path = recordId ? `/api/schedules/${recordId}` : "/api/schedules";
+    const result = await requestJson(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channel_id: channelId, start_time: startTime, rule: collectRecordingRule() }),
+    });
+    recordingDialog.close();
+    statusElement.textContent = recordId ? "Recording rule updated in MythTV." : "Recording scheduled in MythTV.";
+    const upcomingButton = document.querySelector('[data-view="upcoming"]');
+    if (upcomingButton?.dataset.loaded === "true") loadUpcoming();
+    if (result.existing) statusElement.textContent = "This program already has a recording rule.";
+  } catch (error) {
+    recordingDialogStatus.textContent = error.message;
+    saveButton.disabled = false;
+  }
+});
+
+document.querySelector("#recording-dialog-cancel").addEventListener("click", () => recordingDialog.close());
+document.querySelector("#recording-dialog-close").addEventListener("click", () => recordingDialog.close());
 
 async function scheduleProgram(program, channelId, button, statusElement) {
   button.disabled = true;
@@ -1271,6 +1501,142 @@ function renderChannelPrograms(container, channels, onlyCurrent, statusElement) 
   return rendered;
 }
 
+function renderGuideTimeline(container, channels, start, end) {
+  const windowStart = start.getTime();
+  const windowEnd = end.getTime();
+  const duration = windowEnd - windowStart;
+  const trackWidth = Math.max(720, duration / 3600000 * 260);
+  const board = makeElement("div", "guide-board");
+  board.dataset.windowStart = String(windowStart);
+  board.dataset.windowEnd = String(windowEnd);
+  board.style.setProperty("--guide-track-width", `${trackWidth}px`);
+
+  const axis = makeElement("div", "guide-time-axis");
+  const channelLabel = makeElement("div", "guide-axis-channel", "Channels");
+  const axisTrack = makeElement("div", "guide-axis-track");
+  axisTrack.style.width = `${trackWidth}px`;
+  const tickMinutes = 30;
+  const tickCount = Math.floor(duration / (tickMinutes * 60000));
+  for (let index = 0; index < tickCount; index += 1) {
+    const tickTime = windowStart + index * tickMinutes * 60000;
+    const tick = makeElement("time", "guide-time-tick", new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(tickTime));
+    tick.dateTime = new Date(tickTime).toISOString();
+    tick.style.left = `${index / tickCount * trackWidth}px`;
+    axisTrack.append(tick);
+  }
+  const axisNow = makeElement("span", "guide-now-line guide-axis-now");
+  axisNow.setAttribute("aria-hidden", "true");
+  axisTrack.append(axisNow);
+  axis.append(channelLabel, axisTrack);
+  board.append(axis);
+
+  let rendered = 0;
+  for (const channel of channels) {
+    const programs = (channel.Programs || []).filter((program) => {
+      const startTime = Date.parse(program.StartTime || "");
+      const endTime = Date.parse(program.EndTime || "");
+      return Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > windowStart && startTime < windowEnd;
+    });
+    if (!programs.length) continue;
+
+    const row = makeElement("div", "guide-timeline-row");
+    const rail = makeElement("div", "guide-timeline-channel");
+    const iconFilename = channel.Icon || "";
+    if (/^[A-Za-z0-9_. -]{1,255}$/.test(iconFilename)) {
+      const icon = makeElement("img", "guide-channel-icon");
+      icon.src = appPath(`/api/channel-icon?filename=${encodeURIComponent(iconFilename)}`);
+      icon.alt = "";
+      icon.loading = "lazy";
+      icon.addEventListener("error", () => icon.remove(), { once: true });
+      rail.append(icon);
+    } else {
+      rail.append(makeElement("span", "guide-channel-icon-fallback", (channel.CallSign || channel.ChanNum || "TV").slice(0, 2)));
+    }
+    const channelTitle = channel.ChanNum
+      ? `${channel.ChanNum} · ${channel.CallSign || channel.ChannelName || "Channel"}`
+      : channel.CallSign || channel.ChannelName || "Channel";
+    rail.append(makeElement("span", "guide-timeline-channel-name", channelTitle));
+
+    const track = makeElement("div", "guide-timeline-track");
+    track.style.width = `${trackWidth}px`;
+    const nowLine = makeElement("span", "guide-now-line");
+    nowLine.setAttribute("aria-hidden", "true");
+    track.append(nowLine);
+    for (const program of programs) {
+      const programStart = Math.max(windowStart, Date.parse(program.StartTime));
+      const programEnd = Math.min(windowEnd, Date.parse(program.EndTime));
+      const left = (programStart - windowStart) / duration * trackWidth;
+      const width = (programEnd - programStart) / duration * trackWidth;
+      const card = makeElement("article", "guide-event-card");
+      card.tabIndex = 0;
+      card.setAttribute("role", "group");
+      card.setAttribute("aria-label", `${program.Title || "Program"}, ${formatProgramTime(program.StartTime, program.EndTime)}`);
+      card.style.left = `${left}px`;
+      card.style.width = `${Math.max(1, Math.min(width, trackWidth - left))}px`;
+      const colorKey = [...String(program.Category || program.Title || "").toLowerCase()].reduce((sum, character) => sum + character.charCodeAt(0), 0) % 6;
+      card.dataset.color = String(colorKey);
+      const artwork = artworkUrl(program);
+      if (artwork) {
+        const image = makeElement("img", "guide-event-art");
+        image.src = artwork;
+        image.alt = "";
+        image.loading = "lazy";
+        image.addEventListener("error", () => image.remove(), { once: true });
+        card.append(image);
+      }
+      const content = makeElement("div", "guide-event-content");
+      content.append(makeElement("time", "guide-event-time", formatProgramTime(program.StartTime, program.EndTime)));
+      content.append(makeElement("h3", "guide-event-title", program.Title || "Untitled program"));
+      if (program.SubTitle) content.append(makeElement("p", "guide-event-subtitle", program.SubTitle));
+      const recordId = Number(program.Recording?.RecordId || 0);
+      const action = makeElement("button", "guide-event-action", recordId ? "Edit" : "Record");
+      action.type = "button";
+      action.setAttribute("aria-label", `${recordId ? "Edit recording rule for" : "Set up recording for"} ${program.Title || "program"}`);
+      const openEditor = () => openRecordingEditor({
+        program,
+        channelId: Number(channel.ChanId || 0),
+        recordId,
+        statusElement: guideStatus,
+      });
+      card.addEventListener("click", (event) => {
+        if (event.target !== action) openEditor();
+      });
+      card.addEventListener("keydown", (event) => {
+        if (event.target === card && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          openEditor();
+        }
+      });
+      action.addEventListener("click", openEditor);
+      content.append(action);
+      card.append(content);
+      track.append(card);
+      rendered += 1;
+    }
+    row.append(rail, track);
+    board.append(row);
+  }
+  container.replaceChildren(board);
+  updateGuideNowIndicator();
+  return rendered;
+}
+
+function updateGuideNowIndicator() {
+  const now = Date.now();
+  for (const board of document.querySelectorAll(".guide-board")) {
+    const start = Number(board.dataset.windowStart);
+    const end = Number(board.dataset.windowEnd);
+    const width = Number.parseFloat(board.style.getPropertyValue("--guide-track-width"));
+    const ratio = (now - start) / (end - start);
+    const visible = ratio >= 0 && ratio <= 1;
+    const position = `${ratio * width}px`;
+    for (const line of board.querySelectorAll(".guide-now-line")) {
+      line.style.left = position;
+      line.hidden = !visible;
+    }
+  }
+}
+
 async function loadGuide(onlyCurrent = false) {
   const start = onlyCurrent ? new Date(Date.now() - 60 * 60 * 1000) : new Date(guideStartTime);
   if (onlyCurrent) start.setMinutes(0, 0, 0);
@@ -1281,7 +1647,9 @@ async function loadGuide(onlyCurrent = false) {
   try {
     const query = new URLSearchParams({ start: start.toISOString(), end: end.toISOString() });
     const result = await requestJson(`/api/guide?${query}`);
-    const rendered = renderChannelPrograms(list, result.channels, onlyCurrent, statusElement);
+    const rendered = onlyCurrent
+      ? renderChannelPrograms(list, result.channels, true, statusElement)
+      : renderGuideTimeline(list, result.channels, start, end);
     if (onlyCurrent) {
       document.querySelector("#live-summary").textContent = `${rendered} programs currently airing across visible channels.`;
       statusElement.textContent = rendered ? "Current channel listings" : "No current program data is available.";
@@ -1353,6 +1721,18 @@ async function loadUpcoming() {
       const channelName = [channel.ChanNum, channel.CallSign || channel.ChannelName].filter(Boolean).join(" · ");
       card.append(makeElement("p", "service-row-meta", `${formatDate(program.StartTime)}${channelName ? ` · ${channelName}` : ""}`));
       card.append(makeElement("span", "service-state is-online", program.Recording?.RecTypeStatus || program.Recording?.StatusName || "Scheduled"));
+      const recordId = Number(program.Recording?.RecordId || 0);
+      if (recordId > 0) {
+        const editButton = makeElement("button", "schedule-button", "Edit options");
+        editButton.type = "button";
+        editButton.addEventListener("click", () => openRecordingEditor({
+          program,
+          channelId: Number(channel.ChanId || 0),
+          recordId,
+          statusElement,
+        }));
+        card.append(editButton);
+      }
       return card;
     });
     list.replaceChildren(...cards);
@@ -1416,6 +1796,7 @@ if (viewButtons.length) {
     guideStartTime.setHours(guideStartTime.getHours() + 4);
     loadGuide();
   });
+  window.setInterval(updateGuideNowIndicator, 60000);
 
   const initialView = window.location.hash.slice(1);
   if (viewButtons.some((button) => button.dataset.view === initialView)) {

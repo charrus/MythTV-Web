@@ -114,6 +114,29 @@
       <div class="service-list encoder-list" id="encoder-list" aria-live="polite"></div>
     </section>
 
+    <dialog class="recording-dialog" id="recording-dialog" aria-labelledby="recording-dialog-title">
+      <form id="recording-rule-form">
+        <header class="recording-dialog-header">
+          <div>
+            <p class="eyebrow">RECORDING OPTIONS</p>
+            <h2 id="recording-dialog-title">Recording options</h2>
+            <p class="recording-dialog-subtitle" id="recording-dialog-subtitle"></p>
+          </div>
+          <button class="player-close player-icon-button" id="recording-dialog-close" type="button" aria-label="Close recording options" title="Close">
+            <svg class="player-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+          </button>
+        </header>
+        <div class="recording-rule-fields" id="recording-rule-fields"></div>
+        <footer class="recording-dialog-footer">
+          <p class="recording-dialog-status" id="recording-dialog-status" role="status"></p>
+          <div class="recording-dialog-actions">
+            <button class="delete-cancel" id="recording-dialog-cancel" type="button">Cancel</button>
+            <button class="schedule-save-button" id="recording-dialog-save" type="submit">Save recording rule</button>
+          </div>
+        </footer>
+      </form>
+    </dialog>
+
     <dialog class="delete-dialog" id="delete-dialog" aria-labelledby="delete-title" aria-describedby="delete-description">
       <div class="delete-confirmation">
         <p class="eyebrow">RECORDING ACTION</p>
