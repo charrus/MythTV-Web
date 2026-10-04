@@ -518,9 +518,6 @@ def create_app() -> Flask:
 
     @app.post("/api/schedules")
     def schedule_recording():
-        if not request.headers.get("X-Authenticated-User", "").strip():
-            return jsonify(error="An Apache-authenticated user is required"), 401
-
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
             return jsonify(error="A channel and program start time are required"), 400
@@ -577,6 +574,7 @@ def create_app() -> Flask:
                 if type(selected_channel) is int and selected_channel > 0
                 else channel_id
             )
+            rule["Station"] = rule.pop("CallSign", rule.get("Station", ""))
             rule["StartTime"] = rule_options.get("StartTime", start_time)
             if "Type" not in rule_options:
                 rule["Type"] = "Record One"
@@ -587,7 +585,7 @@ def create_app() -> Flask:
             )
             created.raise_for_status()
             result = created.json()
-            rule_id = result.get("int") if isinstance(result, dict) else None
+            rule_id = result.get("uint") if isinstance(result, dict) else None
         except (requests.RequestException, ValueError, TypeError) as error:
             app.logger.warning("MythTV schedule request failed: %s", error)
             return jsonify(error="Could not schedule this MythTV program"), 502
@@ -598,9 +596,6 @@ def create_app() -> Flask:
 
     @app.post("/api/schedules/<int:record_id>")
     def update_schedule(record_id):
-        if not request.headers.get("X-Authenticated-User", "").strip():
-            return jsonify(error="An Apache-authenticated user is required"), 401
-
         payload = request.get_json(silent=True)
         rule_options = payload.get("rule") if isinstance(payload, dict) else None
         if not isinstance(rule_options, dict):
@@ -627,6 +622,7 @@ def create_app() -> Flask:
                     if key in RECORDING_RULE_FIELDS
                 }
             )
+            rule["Station"] = rule.pop("CallSign", rule.get("Station", ""))
             updated = requests.post(
                 f"{backend_url}/Dvr/UpdateRecordSchedule",
                 json={"RecordId": record_id, **rule},
@@ -641,6 +637,31 @@ def create_app() -> Flask:
         return jsonify(
             updated=bool(updated.json().get("bool", True)), rule_id=record_id
         )
+
+    @app.post("/api/schedules/<int:record_id>/delete")
+    def delete_schedule(record_id):
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict) or payload.get("confirm") is not True:
+            return jsonify(error="Confirm removal of this recording rule"), 400
+
+        try:
+            response = requests.post(
+                f"{app.config['MYTHTV_BACKEND_URL']}/Dvr/RemoveRecordSchedule",
+                json={"RecordId": record_id},
+                headers={"Accept": "application/json"},
+                timeout=app.config["MYTHTV_TIMEOUT"],
+            )
+            response.raise_for_status()
+            result = response.json()
+        except (requests.RequestException, ValueError, TypeError) as error:
+            app.logger.warning("MythTV schedule removal failed: %s", error)
+            return jsonify(error="Could not remove the MythTV recording rule"), 502
+
+        if not isinstance(result, dict) or not isinstance(result.get("bool"), bool):
+            return jsonify(error="MythTV returned an invalid removal response"), 502
+        if not result["bool"]:
+            return jsonify(error="Recording rule not found"), 404
+        return jsonify(deleted=True, rule_id=record_id)
 
     @app.get("/api/program-groups")
     def program_groups():

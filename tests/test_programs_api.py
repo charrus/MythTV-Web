@@ -286,23 +286,6 @@ def test_guide_rejects_a_window_over_six_hours(monkeypatch):
     assert response.status_code == 400
 
 
-def test_schedule_requires_an_authenticated_user(monkeypatch):
-    def unexpected_get(*args, **kwargs):
-        raise AssertionError("unauthenticated schedule requests must not reach MythTV")
-
-    monkeypatch.setattr("mythtv_web.requests.get", unexpected_get)
-    response = (
-        create_app()
-        .test_client()
-        .post(
-            "/api/schedules",
-            json={"channel_id": 1001, "start_time": "2026-10-04T15:00:00Z"},
-        )
-    )
-
-    assert response.status_code == 401
-
-
 def test_schedule_rejects_non_string_start_time(monkeypatch):
     def unexpected_get(*args, **kwargs):
         raise AssertionError("invalid schedule times must not reach MythTV")
@@ -314,7 +297,6 @@ def test_schedule_rejects_non_string_start_time(monkeypatch):
         .post(
             "/api/schedules",
             json={"channel_id": 1001, "start_time": 12345},
-            headers={"X-Authenticated-User": "viewer"},
         )
     )
 
@@ -329,14 +311,21 @@ def test_schedule_forwards_options_and_defaults_to_record_one(monkeypatch):
             pass
 
         def json(self):
-            return {"RecRule": {"Id": 0, "Title": "Example", "ChanId": 1001}}
+            return {
+                "RecRule": {
+                    "Id": 0,
+                    "Title": "Example",
+                    "ChanId": 1001,
+                    "CallSign": "10 HD",
+                }
+            }
 
     class CreateResponse:
         def raise_for_status(self):
             pass
 
         def json(self):
-            return {"int": 314}
+            return {"uint": 314}
 
     def fake_get(url, **kwargs):
         captured["calls"].append(("get", url, kwargs))
@@ -356,12 +345,10 @@ def test_schedule_forwards_options_and_defaults_to_record_one(monkeypatch):
             "start_time": "2026-10-04T15:00:00Z",
             "rule": {"Type": "Record All", "RecPriority": 7, "Id": 999},
         },
-        headers={"X-Authenticated-User": "viewer"},
     )
     default_response = client.post(
         "/api/schedules",
         json={"channel_id": 1001, "start_time": "2026-10-04T15:00:00Z"},
-        headers={"X-Authenticated-User": "viewer"},
     )
 
     assert response.status_code == 200
@@ -370,6 +357,8 @@ def test_schedule_forwards_options_and_defaults_to_record_one(monkeypatch):
     assert captured["calls"][1][2]["json"]["RecPriority"] == 7
     assert captured["calls"][1][2]["json"]["Id"] == 0
     assert captured["calls"][1][2]["json"]["ChanId"] == 1001
+    assert captured["calls"][1][2]["json"]["Station"] == "10 HD"
+    assert "CallSign" not in captured["calls"][1][2]["json"]
     assert captured["calls"][1][1] == "http://127.0.0.1:6544/Dvr/AddRecordSchedule"
     assert default_response.status_code == 200
     assert captured["calls"][3][2]["json"]["Type"] == "Record One"
@@ -407,20 +396,6 @@ def test_schedule_options_load_rule_and_mythtv_choices(monkeypatch):
     assert group_call[1]["params"] == {"UsedBy": "schedule"}
 
 
-def test_schedule_update_requires_an_authenticated_user(monkeypatch):
-    def unexpected_get(*args, **kwargs):
-        raise AssertionError("unauthenticated updates must not reach MythTV")
-
-    monkeypatch.setattr("mythtv_web.requests.get", unexpected_get)
-    response = (
-        create_app()
-        .test_client()
-        .post("/api/schedules/1135", json={"rule": {"RecPriority": 4}})
-    )
-
-    assert response.status_code == 401
-
-
 def test_schedule_update_posts_mutable_rule_options(monkeypatch):
     calls = []
 
@@ -437,7 +412,14 @@ def test_schedule_update_posts_mutable_rule_options(monkeypatch):
     def fake_get(url, **kwargs):
         calls.append(("get", url, kwargs))
         return Response(
-            {"RecRule": {"Id": 1135, "Type": "Record All", "RecPriority": 1}}
+            {
+                "RecRule": {
+                    "Id": 1135,
+                    "Type": "Record All",
+                    "RecPriority": 1,
+                    "CallSign": "10 HD",
+                }
+            }
         )
 
     def fake_post(url, **kwargs):
@@ -452,7 +434,6 @@ def test_schedule_update_posts_mutable_rule_options(monkeypatch):
         .post(
             "/api/schedules/1135",
             json={"rule": {"Type": "Record Weekly", "RecPriority": 5}},
-            headers={"X-Authenticated-User": "viewer"},
         )
     )
 
@@ -462,6 +443,50 @@ def test_schedule_update_posts_mutable_rule_options(monkeypatch):
     assert calls[1][2]["json"]["RecordId"] == 1135
     assert calls[1][2]["json"]["Type"] == "Record Weekly"
     assert calls[1][2]["json"]["RecPriority"] == 5
+    assert calls[1][2]["json"]["Station"] == "10 HD"
+    assert "CallSign" not in calls[1][2]["json"]
+
+
+def test_schedule_delete_requires_explicit_confirmation(monkeypatch):
+    def unexpected_post(*args, **kwargs):
+        raise AssertionError("unconfirmed schedule removal must not reach MythTV")
+
+    monkeypatch.setattr("mythtv_web.requests.post", unexpected_post)
+    response = (
+        create_app()
+        .test_client()
+        .post("/api/schedules/1135/delete", json={"confirm": False})
+    )
+
+    assert response.status_code == 400
+
+
+def test_schedule_delete_removes_confirmed_rule_without_app_identity(monkeypatch):
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"bool": True}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("mythtv_web.requests.post", fake_post)
+    response = (
+        create_app()
+        .test_client()
+        .post("/api/schedules/1135/delete", json={"confirm": True})
+    )
+
+    assert response.status_code == 200
+    assert response.json == {"deleted": True, "rule_id": 1135}
+    assert captured["url"] == "http://127.0.0.1:6544/Dvr/RemoveRecordSchedule"
+    assert captured["json"] == {"RecordId": 1135}
 
 
 def test_program_list_is_proxied_with_pagination(monkeypatch):

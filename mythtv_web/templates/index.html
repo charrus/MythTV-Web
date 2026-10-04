@@ -96,6 +96,13 @@
           <button class="back-button" id="guide-next" type="button">Next</button>
         </div>
       </header>
+      <div class="guide-toolbar">
+        <label class="guide-search">
+          <svg class="guide-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.2" /><path d="m15.4 15.4 5 5" /></svg>
+          <input id="guide-search" type="search" placeholder="Search programs, descriptions, or channels" autocomplete="off" aria-label="Search Guide programs and channels">
+        </label>
+        <span class="guide-search-count" id="guide-search-count" aria-live="polite"></span>
+      </div>
       <p class="result-note" id="guide-status" role="status"></p>
       <div class="guide-list" id="guide-list" aria-live="polite"></div>
     </section>
@@ -130,6 +137,9 @@
         <footer class="recording-dialog-footer">
           <p class="recording-dialog-status" id="recording-dialog-status" role="status"></p>
           <div class="recording-dialog-actions">
+            <button class="recording-rule-delete-action" id="recording-rule-delete" type="button" aria-label="Delete recording rule" title="Delete recording rule" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 14h12l1-14M9 7V4h6v3" /></svg>
+            </button>
             <button class="delete-cancel" id="recording-dialog-cancel" type="button">Cancel</button>
             <button class="schedule-save-button" id="recording-dialog-save" type="submit">Save recording rule</button>
           </div>

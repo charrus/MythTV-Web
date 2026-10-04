@@ -28,7 +28,7 @@ The home page groups recordings by program title, like MythFrontend. Selecting a
 
 ## Guide and backend status
 
-The Upcoming tab shows scheduled programs, while Guide browses a four-hour program window and can add a single-program recording rule through MythTV's `Dvr/GetRecordSchedule` and `Dvr/AddRecordSchedule` services. Schedule creation requires the Apache-provided `X-Authenticated-User` identity. Status summarizes backend version, connected encoders, and encoder state. Live TV lists programs currently airing on visible channels and offers the same schedule action; it does not start live playback because MythTV's HTTP services on this host do not expose a tuner-start or live-channel stream endpoint.
+The Upcoming tab shows scheduled programs, while Guide browses a four-hour program window and can create, edit, or delete recording rules through MythTV's `Dvr` services. Schedule-rule requests do not require an application-level user identity; Apache protects the public route, and the host firewall must restrict direct Flask access. Status summarizes backend version, connected encoders, and encoder state. Live TV lists programs currently airing on visible channels and offers the same schedule action; it does not start live playback because MythTV's HTTP services on this host do not expose a tuner-start or live-channel stream endpoint.
 
 ## Browser playback
 
@@ -97,7 +97,7 @@ Include the snippet inside both the HTTP and HTTPS `<VirtualHost>` blocks for yo
 Include /etc/apache2/conf-available/mythtv-web.conf
 ```
 
-The Basic Auth rule is scoped to the backend proxy target and sets `Satisfy all` to prevent a broad legacy proxy allowlist from bypassing the login. Apache overwrites `X-Authenticated-User` with the authenticated account name; Flask requires this proxy-supplied identity and an explicit confirmation for recording deletion. The deletion request uses MythTV's non-forced delete options. The example assumes Apache and Flask run on the same host. Because Flask binds to `0.0.0.0:6555`, enforce the network boundary with the host firewall: allow only the intended trusted clients or subnets to reach port 6555, and block untrusted networks. Direct Flask access bypasses Apache Basic Auth, so do not leave the port generally reachable.
+The Basic Auth rule is scoped to the backend proxy target and sets `Satisfy all` to prevent a broad legacy proxy allowlist from bypassing the login. Apache overwrites `X-Authenticated-User` with the authenticated account name. Flask requires this proxy-supplied identity and explicit confirmation for deleting a recording file; that request uses MythTV's non-forced delete options. Schedule-rule create, edit, and delete requests do not check this identity in Flask. The example assumes Apache and Flask run on the same host. Because Flask binds to `0.0.0.0:6555`, enforce the network boundary with the host firewall: allow only the intended trusted clients or subnets to reach port 6555, and block untrusted networks. Direct Flask access bypasses Apache Basic Auth, so do not leave the port generally reachable.
 
 Start or restart the Flask service, then validate and reload Apache:
 

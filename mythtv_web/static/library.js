@@ -1117,13 +1117,26 @@ const viewPanels = [...document.querySelectorAll("[data-view-panel]")];
 const guideList = document.querySelector("#guide-list");
 const guideStatus = document.querySelector("#guide-status");
 const guideWindow = document.querySelector("#guide-window");
+const guideSearchInput = document.querySelector("#guide-search");
+const guideSearchCount = document.querySelector("#guide-search-count");
 const recordingDialog = document.querySelector("#recording-dialog");
 const recordingRuleForm = document.querySelector("#recording-rule-form");
 const recordingRuleFields = document.querySelector("#recording-rule-fields");
 const recordingDialogStatus = document.querySelector("#recording-dialog-status");
+const recordingRuleDeleteButton = document.querySelector("#recording-rule-delete");
 const guideStartTime = new Date();
 guideStartTime.setMinutes(0, 0, 0);
 let editingSchedule = null;
+let guideData = null;
+let guideDetailsCard = null;
+let guideDetailsPinned = false;
+let guideDetailsHideTimer = 0;
+const guideDetailsPopover = document.createElement("aside");
+guideDetailsPopover.className = "guide-details-popover";
+guideDetailsPopover.id = "guide-details-popover";
+guideDetailsPopover.setAttribute("aria-label", "Program details");
+guideDetailsPopover.hidden = true;
+document.body.append(guideDetailsPopover);
 
 function makeElement(tagName, className, text) {
   const element = document.createElement(tagName);
@@ -1150,6 +1163,162 @@ function formatGuideWindow(start, end) {
   });
   return `${formatter.format(start)} – ${formatter.format(end)}`;
 }
+
+function makeGuideRecordButton(program, channel, statusElement, scheduled, withText = false) {
+  const button = makeElement(
+    "button",
+    withText ? "guide-details-record-action" : "guide-event-action",
+  );
+  button.type = "button";
+  button.setAttribute(
+    "aria-label",
+    `${scheduled ? "Edit recording rule for" : "Record"} ${program.Title || "program"}`,
+  );
+  button.title = scheduled ? "Edit recording rule" : "Record program";
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+  if (scheduled) {
+    const pen = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    pen.setAttribute("d", "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z");
+    icon.append(pen);
+  } else {
+    const outer = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    outer.setAttribute("cx", "12");
+    outer.setAttribute("cy", "12");
+    outer.setAttribute("r", "8");
+    icon.append(outer);
+    const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    dot.setAttribute("cx", "12");
+    dot.setAttribute("cy", "12");
+    dot.setAttribute("r", "3");
+    dot.setAttribute("class", "guide-record-icon-dot");
+    icon.append(dot);
+  }
+  button.append(icon);
+  if (withText) button.append(document.createTextNode(scheduled ? "Edit rule" : "Record"));
+  button.addEventListener("click", () => {
+    closeGuideDetails();
+    openRecordingEditor({
+      program,
+      channelId: Number(channel.ChanId || 0),
+      recordId: Number(program.Recording?.RecordId || 0),
+      statusElement,
+    });
+  });
+  return button;
+}
+
+function positionGuideDetails() {
+  if (guideDetailsPopover.hidden || !guideDetailsCard) return;
+  const anchor = guideDetailsCard.getBoundingClientRect();
+  const panel = guideDetailsPopover.getBoundingClientRect();
+  const left = Math.max(12, Math.min(anchor.left, window.innerWidth - panel.width - 12));
+  const below = anchor.bottom + 8;
+  const top = below + panel.height <= window.innerHeight - 12
+    ? below
+    : Math.max(12, anchor.top - panel.height - 8);
+  guideDetailsPopover.style.left = `${left}px`;
+  guideDetailsPopover.style.top = `${top}px`;
+}
+
+function scheduleGuideDetailsHide() {
+  window.clearTimeout(guideDetailsHideTimer);
+  guideDetailsHideTimer = window.setTimeout(() => {
+    if (!guideDetailsPinned) closeGuideDetails();
+  }, 160);
+}
+
+function closeGuideDetails(restoreFocus = false) {
+  window.clearTimeout(guideDetailsHideTimer);
+  if (guideDetailsCard) {
+    const trigger = guideDetailsCard.querySelector(".guide-event-info-trigger");
+    guideDetailsCard.classList.remove("has-details");
+    trigger?.setAttribute("aria-expanded", "false");
+    trigger?.removeAttribute("aria-describedby");
+  }
+  guideDetailsPopover.hidden = true;
+  guideDetailsPinned = false;
+  if (restoreFocus) guideDetailsCard?.focus({ preventScroll: true });
+  guideDetailsCard = null;
+}
+
+function showGuideDetails(program, channel, card, statusElement, pinned = false, focusAction = false) {
+  if (guideDetailsPinned && guideDetailsCard !== card) return;
+  window.clearTimeout(guideDetailsHideTimer);
+  if (guideDetailsCard && guideDetailsCard !== card) {
+    const previousTrigger = guideDetailsCard.querySelector(".guide-event-info-trigger");
+    guideDetailsCard.classList.remove("has-details");
+    previousTrigger?.setAttribute("aria-expanded", "false");
+    previousTrigger?.removeAttribute("aria-describedby");
+  }
+  guideDetailsCard = card;
+  guideDetailsPinned = pinned;
+  card.classList.add("has-details");
+  const trigger = card.querySelector(".guide-event-info-trigger");
+  trigger?.setAttribute("aria-expanded", "true");
+  trigger?.setAttribute("aria-describedby", guideDetailsPopover.id);
+
+  const recording = program.Recording || {};
+  const recordId = Number(recording.RecordId || 0);
+  const recordingStatus = recording.StatusName || recording.RecTypeStatus || "";
+  const scheduled = recordId > 0 || /^(will record|recording)$/i.test(recordingStatus);
+  const channelName = [channel.ChanNum, channel.CallSign || channel.ChannelName].filter(Boolean).join(" · ");
+  const header = makeElement("header", "guide-details-header");
+  const heading = makeElement("div", "guide-details-heading");
+  heading.append(makeElement("h2", "guide-details-title", program.Title || "Untitled program"));
+  heading.querySelector(".guide-details-title").id = "guide-details-title";
+  if (program.SubTitle) heading.append(makeElement("p", "guide-details-subtitle", program.SubTitle));
+  const closeButton = makeElement("button", "guide-details-close", "×");
+  closeButton.type = "button";
+  closeButton.setAttribute("aria-label", "Close program details");
+  closeButton.addEventListener("click", () => closeGuideDetails(true));
+  header.append(heading, closeButton);
+
+  const metadata = makeElement("dl", "guide-details-metadata");
+  const metadataItems = [
+    ["Time", formatProgramTime(program.StartTime, program.EndTime)],
+    ["Channel", channelName || "Channel"],
+    ["Category", program.Category || "Uncategorized"],
+    ["Recording", scheduled ? recordingStatus || "Scheduled" : "Not scheduled"],
+  ];
+  for (const [label, value] of metadataItems) {
+    const item = makeElement("div", "guide-details-meta-item");
+    item.append(makeElement("dt", "guide-details-meta-label", label));
+    item.append(makeElement("dd", "guide-details-meta-value", value));
+    metadata.append(item);
+  }
+  const details = makeElement("div", "guide-details-description");
+  if (program.Description) details.textContent = program.Description;
+  else details.textContent = "No program description is available.";
+  const actions = makeElement("div", "guide-details-actions");
+  actions.append(makeGuideRecordButton(program, channel, statusElement, scheduled, true));
+  guideDetailsPopover.replaceChildren(header, metadata, details, actions);
+  guideDetailsPopover.setAttribute("role", pinned ? "dialog" : "region");
+  guideDetailsPopover.setAttribute("aria-labelledby", "guide-details-title");
+  guideDetailsPopover.hidden = false;
+  positionGuideDetails();
+  if (focusAction) guideDetailsPopover.querySelector("button:not(.guide-details-close)")?.focus({ preventScroll: true });
+}
+
+guideDetailsPopover.addEventListener("pointerenter", () => window.clearTimeout(guideDetailsHideTimer));
+guideDetailsPopover.addEventListener("pointerleave", scheduleGuideDetailsHide);
+guideDetailsPopover.addEventListener("focusout", (event) => {
+  if (!guideDetailsPopover.contains(event.relatedTarget)) scheduleGuideDetailsHide();
+});
+document.addEventListener("pointerdown", (event) => {
+  if (guideDetailsPinned && !guideDetailsPopover.contains(event.target) && !guideDetailsCard?.contains(event.target)) {
+    closeGuideDetails();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !guideDetailsPopover.hidden) {
+    event.stopPropagation();
+    closeGuideDetails(true);
+  }
+});
+window.addEventListener("resize", positionGuideDetails);
+guideList.addEventListener("scroll", positionGuideDetails, { passive: true });
 
 async function requestJson(path, options = {}) {
   const response = await fetch(appPath(path), options);
@@ -1334,6 +1503,8 @@ async function openRecordingEditor({ program, channelId, recordId = 0, statusEle
   document.querySelector("#recording-dialog-title").textContent = recordId ? "Edit recording rule" : "Set up recording";
   document.querySelector("#recording-dialog-subtitle").textContent = [program.Title, program.SubTitle].filter(Boolean).join(" · ");
   document.querySelector("#recording-dialog-save").disabled = true;
+  recordingRuleDeleteButton.hidden = !recordId;
+  recordingRuleDeleteButton.disabled = true;
   recordingRuleFields.replaceChildren();
   recordingDialog.showModal();
   try {
@@ -1342,11 +1513,15 @@ async function openRecordingEditor({ program, channelId, recordId = 0, statusEle
       : { channel_id: String(channelId), start_time: program.StartTime });
     const result = await requestJson(`/api/schedules/options?${query}`);
     const rule = { ...result.rule };
-    if (!recordId && !Number(rule.Id || 0)) rule.Type = "Record One";
-    editingSchedule = { recordId, channelId, startTime: program.StartTime, statusElement };
+    const resolvedRecordId = recordId || Number(rule.Id || 0);
+    if (!resolvedRecordId) rule.Type = "Record One";
+    document.querySelector("#recording-dialog-title").textContent = resolvedRecordId ? "Edit recording rule" : "Set up recording";
+    recordingRuleDeleteButton.hidden = !resolvedRecordId;
+    editingSchedule = { recordId: resolvedRecordId, channelId, startTime: program.StartTime, statusElement, program };
     renderRecordingRuleFields(rule, result.choices);
     recordingDialogStatus.textContent = "Choose how MythTV should handle this program.";
     document.querySelector("#recording-dialog-save").disabled = false;
+    recordingRuleDeleteButton.disabled = false;
   } catch (error) {
     recordingDialogStatus.textContent = error.message;
   }
@@ -1390,10 +1565,37 @@ recordingRuleForm.addEventListener("submit", async (event) => {
     statusElement.textContent = recordId ? "Recording rule updated in MythTV." : "Recording scheduled in MythTV.";
     const upcomingButton = document.querySelector('[data-view="upcoming"]');
     if (upcomingButton?.dataset.loaded === "true") loadUpcoming();
+    if (document.querySelector('[data-view="guide"]')?.classList.contains("active")) loadGuide();
     if (result.existing) statusElement.textContent = "This program already has a recording rule.";
   } catch (error) {
     recordingDialogStatus.textContent = error.message;
     saveButton.disabled = false;
+  }
+});
+
+recordingRuleDeleteButton.addEventListener("click", async () => {
+  if (!editingSchedule?.recordId) return;
+  const title = editingSchedule.program.Title || "this program";
+  if (!window.confirm(`Delete the recording rule for ${title}?`)) return;
+  recordingRuleDeleteButton.disabled = true;
+  document.querySelector("#recording-dialog-save").disabled = true;
+  recordingDialogStatus.textContent = "Deleting recording rule…";
+  try {
+    const { recordId, statusElement } = editingSchedule;
+    await requestJson(`/api/schedules/${recordId}/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: true }),
+    });
+    recordingDialog.close();
+    statusElement.textContent = `Recording rule for ${title} deleted from MythTV.`;
+    const upcomingButton = document.querySelector('[data-view="upcoming"]');
+    if (upcomingButton?.dataset.loaded === "true") loadUpcoming();
+    if (document.querySelector('[data-view="guide"]')?.classList.contains("active")) loadGuide();
+  } catch (error) {
+    recordingDialogStatus.textContent = error.message;
+    recordingRuleDeleteButton.disabled = false;
+    document.querySelector("#recording-dialog-save").disabled = false;
   }
 });
 
@@ -1501,10 +1703,12 @@ function renderChannelPrograms(container, channels, onlyCurrent, statusElement) 
   return rendered;
 }
 
-function renderGuideTimeline(container, channels, start, end) {
+function renderGuideTimeline(container, channels, start, end, searchTerm = "") {
+  closeGuideDetails();
   const windowStart = start.getTime();
   const windowEnd = end.getTime();
   const duration = windowEnd - windowStart;
+  const normalizedSearch = searchTerm.trim().toLocaleLowerCase();
   const trackWidth = Math.max(720, duration / 3600000 * 260);
   const board = makeElement("div", "guide-board");
   board.dataset.windowStart = String(windowStart);
@@ -1532,10 +1736,19 @@ function renderGuideTimeline(container, channels, start, end) {
 
   let rendered = 0;
   for (const channel of channels) {
+    const channelText = [channel.ChanNum, channel.CallSign, channel.ChannelName]
+      .filter(Boolean)
+      .join(" ")
+      .toLocaleLowerCase();
+    const channelMatches = normalizedSearch && channelText.includes(normalizedSearch);
     const programs = (channel.Programs || []).filter((program) => {
       const startTime = Date.parse(program.StartTime || "");
       const endTime = Date.parse(program.EndTime || "");
-      return Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > windowStart && startTime < windowEnd;
+      if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime <= windowStart || startTime >= windowEnd) return false;
+      if (!normalizedSearch || channelMatches) return true;
+      return [program.Title, program.SubTitle, program.Description, program.Category]
+        .filter(Boolean)
+        .some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
     });
     if (!programs.length) continue;
 
@@ -1568,13 +1781,18 @@ function renderGuideTimeline(container, channels, start, end) {
       const left = (programStart - windowStart) / duration * trackWidth;
       const width = (programEnd - programStart) / duration * trackWidth;
       const card = makeElement("article", "guide-event-card");
-      card.tabIndex = 0;
       card.setAttribute("role", "group");
-      card.setAttribute("aria-label", `${program.Title || "Program"}, ${formatProgramTime(program.StartTime, program.EndTime)}`);
       card.style.left = `${left}px`;
       card.style.width = `${Math.max(1, Math.min(width, trackWidth - left))}px`;
+      card.dataset.compact = String(width < 150);
+      card.dataset.actionHidden = String(width < 54);
       const colorKey = [...String(program.Category || program.Title || "").toLowerCase()].reduce((sum, character) => sum + character.charCodeAt(0), 0) % 6;
       card.dataset.color = String(colorKey);
+      const recording = program.Recording || {};
+      const recordId = Number(recording.RecordId || 0);
+      const recordingStatus = recording.StatusName || recording.RecTypeStatus || "";
+      const scheduled = recordId > 0 || /^(will record|recording)$/i.test(recordingStatus);
+      card.dataset.scheduled = String(scheduled);
       const artwork = artworkUrl(program);
       if (artwork) {
         const image = makeElement("img", "guide-event-art");
@@ -1584,32 +1802,42 @@ function renderGuideTimeline(container, channels, start, end) {
         image.addEventListener("error", () => image.remove(), { once: true });
         card.append(image);
       }
-      const content = makeElement("div", "guide-event-content");
+      const content = makeElement("div", "guide-event-content guide-event-info-trigger");
+      content.tabIndex = 0;
+      content.setAttribute("role", "button");
+      content.setAttribute("aria-label", `${program.Title || "Program"}, ${formatProgramTime(program.StartTime, program.EndTime)}. Show program details.`);
+      content.setAttribute("aria-expanded", "false");
+      content.setAttribute("aria-controls", guideDetailsPopover.id);
       content.append(makeElement("time", "guide-event-time", formatProgramTime(program.StartTime, program.EndTime)));
       content.append(makeElement("h3", "guide-event-title", program.Title || "Untitled program"));
       if (program.SubTitle) content.append(makeElement("p", "guide-event-subtitle", program.SubTitle));
-      const recordId = Number(program.Recording?.RecordId || 0);
-      const action = makeElement("button", "guide-event-action", recordId ? "Edit" : "Record");
-      action.type = "button";
-      action.setAttribute("aria-label", `${recordId ? "Edit recording rule for" : "Set up recording for"} ${program.Title || "program"}`);
-      const openEditor = () => openRecordingEditor({
-        program,
-        channelId: Number(channel.ChanId || 0),
-        recordId,
-        statusElement: guideStatus,
+      if (scheduled) content.append(makeElement("span", "guide-event-scheduled", "Scheduled"));
+      const action = makeGuideRecordButton(program, channel, guideStatus, scheduled);
+      card.append(content, action);
+      card.addEventListener("pointerenter", () => {
+        if (!guideDetailsPinned) showGuideDetails(program, channel, card, guideStatus);
       });
-      card.addEventListener("click", (event) => {
-        if (event.target !== action) openEditor();
+      card.addEventListener("pointerleave", (event) => {
+        if (!guideDetailsPopover.contains(event.relatedTarget)) scheduleGuideDetailsHide();
       });
-      card.addEventListener("keydown", (event) => {
-        if (event.target === card && (event.key === "Enter" || event.key === " ")) {
+      card.addEventListener("focusin", () => {
+        if (!guideDetailsPinned) showGuideDetails(program, channel, card, guideStatus);
+      });
+      card.addEventListener("focusout", (event) => {
+        if (!card.contains(event.relatedTarget)) scheduleGuideDetailsHide();
+      });
+      const toggleDetails = (focusAction = false) => {
+        const alreadyPinned = guideDetailsPinned && guideDetailsCard === card;
+        if (alreadyPinned) closeGuideDetails();
+        else showGuideDetails(program, channel, card, guideStatus, true, focusAction);
+      };
+      content.addEventListener("click", () => toggleDetails());
+      content.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          openEditor();
+          toggleDetails(true);
         }
       });
-      action.addEventListener("click", openEditor);
-      content.append(action);
-      card.append(content);
       track.append(card);
       rendered += 1;
     }
@@ -1647,21 +1875,39 @@ async function loadGuide(onlyCurrent = false) {
   try {
     const query = new URLSearchParams({ start: start.toISOString(), end: end.toISOString() });
     const result = await requestJson(`/api/guide?${query}`);
-    const rendered = onlyCurrent
-      ? renderChannelPrograms(list, result.channels, true, statusElement)
-      : renderGuideTimeline(list, result.channels, start, end);
+    let rendered;
     if (onlyCurrent) {
+      rendered = renderChannelPrograms(list, result.channels, true, statusElement);
       document.querySelector("#live-summary").textContent = `${rendered} programs currently airing across visible channels.`;
       statusElement.textContent = rendered ? "Current channel listings" : "No current program data is available.";
     } else {
+      guideData = { channels: result.channels, start, end };
+      rendered = renderGuideTimeline(list, result.channels, start, end, guideSearchInput.value);
       guideWindow.textContent = formatGuideWindow(start, end);
-      statusElement.textContent = `${rendered} programs across ${result.channels.length} channels.`;
+      const visibleChannels = guideList.querySelectorAll(".guide-timeline-row").length;
+      const query = guideSearchInput.value.trim();
+      guideSearchCount.textContent = query ? `${rendered} found` : "";
+      statusElement.textContent = query
+        ? `${rendered} matching programs across ${visibleChannels} channels in this guide window.`
+        : `${rendered} programs across ${result.channels.length} channels.`;
     }
   } catch (error) {
     list.replaceChildren(makeElement("p", "service-empty", error.message));
     statusElement.textContent = "Could not load program data.";
   }
 }
+
+guideSearchInput.addEventListener("input", () => {
+  if (!guideData) return;
+  const { channels, start, end } = guideData;
+  const query = guideSearchInput.value.trim();
+  const rendered = renderGuideTimeline(guideList, channels, start, end, query);
+  const visibleChannels = guideList.querySelectorAll(".guide-timeline-row").length;
+  guideSearchCount.textContent = query ? `${rendered} found` : "";
+  guideStatus.textContent = query
+    ? `${rendered} matching programs across ${visibleChannels} channels in this guide window.`
+    : `${rendered} programs across ${channels.length} channels.`;
+});
 
 function appendMetric(container, label, value) {
   const metric = makeElement("div", "status-metric");
@@ -1746,6 +1992,7 @@ async function loadUpcoming() {
 }
 
 function activateView(name) {
+  if (name !== "guide") closeGuideDetails();
   for (const button of viewButtons) {
     const selected = button.dataset.view === name;
     button.classList.toggle("active", selected);
