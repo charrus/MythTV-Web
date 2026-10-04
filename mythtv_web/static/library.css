@@ -860,6 +860,12 @@ h1 {
   background: #46583f;
 }
 
+.player-forward-smart {
+  border-color: var(--leaf);
+  background: #526e43;
+  color: #fff;
+}
+
 .player-button[hidden] {
   display: none;
 }
@@ -871,6 +877,20 @@ h1 {
   aspect-ratio: 16 / 9;
   background: #050706;
   object-fit: contain;
+}
+
+#recording-video::cue {
+  color: #fff;
+  background-color: transparent !important;
+  text-shadow:
+    -1px -1px 2px #000,
+    0 -1px 2px #000,
+    1px -1px 2px #000,
+    -1px 0 2px #000,
+    1px 0 2px #000,
+    -1px 1px 2px #000,
+    0 1px 2px #000,
+    1px 1px 2px #000;
 }
 
 .player-status {
@@ -1012,8 +1032,7 @@ h1 {
   transition: opacity 180ms ease;
 }
 
-.player-shell:fullscreen.controls-visible .player-overlay,
-.player-shell:fullscreen .player-overlay:focus-within {
+.player-shell:fullscreen.controls-visible .player-overlay {
   opacity: 1;
   visibility: visible;
 }

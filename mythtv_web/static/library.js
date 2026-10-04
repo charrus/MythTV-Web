@@ -26,6 +26,8 @@ const playerStatus = document.querySelector("#player-status");
 const playbackSeek = document.querySelector("#playback-seek");
 const smartSkip = document.querySelector("#smart-skip");
 const skipAdButton = document.querySelector("#skip-ad");
+const jumpForwardButton = document.querySelector("#jump-forward");
+const setBookmarkButton = document.querySelector("#set-bookmark");
 let activeRecording = null;
 let playbackInfo = null;
 let pendingDelete = null;
@@ -38,8 +40,11 @@ let transcodeToken = null;
 let wasmPlayback = null;
 let subtitleElement = null;
 let lastSavedPosition = -1;
+let requestedStartPosition = 0;
 let smartSkipBusy = false;
 let controlsHideTimer = null;
+let forwardSkipTimer = null;
+let forwardSkipMode = false;
 let liveRecordingTimer = null;
 const BROWSER_CONVERSION_ENABLED = false;
 
@@ -123,6 +128,22 @@ function secondsFromMarker(value) {
   return parts.reduce((total, part) => total * 60 + part, 0);
 }
 
+function setForwardSkipMode(enabled) {
+  window.clearTimeout(forwardSkipTimer);
+  forwardSkipMode = enabled;
+  const skipLabel = jumpForwardButton.querySelector(".player-icon-label");
+  const seconds = enabled ? 5 : 30;
+  skipLabel.textContent = `${seconds}s`;
+  jumpForwardButton.setAttribute("aria-label", `Jump forward ${seconds} seconds`);
+  jumpForwardButton.title = enabled
+    ? "Smart skip: jump forward 5 seconds"
+    : "Jump forward 30 seconds";
+  jumpForwardButton.classList.toggle("player-forward-smart", enabled);
+  if (enabled) {
+    forwardSkipTimer = window.setTimeout(() => setForwardSkipMode(false), 5000);
+  }
+}
+
 function updateCommercialBreaks(markers) {
   commercialBreaks = (markers || []).map((marker) => ({
     start: secondsFromMarker(marker.Start ?? marker.start),
@@ -176,17 +197,22 @@ function updatePlaybackProgress() {
 
 async function savePlaybackPosition() {
   if (!activeRecording) return;
+  const recordedId = activeRecording.Recording.RecordedId;
   const position = playbackPosition();
   if (!Number.isFinite(position) || position < 0) return;
   lastSavedPosition = position;
   try {
-    await fetch(appPath(`/api/playback/${activeRecording.Recording.RecordedId}/position`), {
+    const response = await fetch(appPath(`/api/playback/${recordedId}/position`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ position }),
     });
-  } catch {
-    // Resume position is best-effort; playback should continue if MythTV is offline.
+    if (!response.ok) throw new Error(`Request failed (${response.status})`);
+  } catch (error) {
+    if (activeRecording?.Recording.RecordedId === recordedId) {
+      lastSavedPosition = -1;
+      playerStatus.textContent = `Could not save playback position: ${error.message}`;
+    }
   }
 }
 
@@ -221,6 +247,12 @@ function stopWasmPlayback() {
   if (playback) playback.cancel();
 }
 
+function createTranscodeToken() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function startTranscode(seconds = 0) {
   stopWasmPlayback();
   cancelTranscode();
@@ -228,7 +260,7 @@ function startTranscode(seconds = 0) {
   usingTranscode = true;
   transcodeBase = seconds;
   const playbackRate = Number(document.querySelector("#playback-speed").value) || 1;
-  transcodeToken = crypto.randomUUID().replace(/-/g, "");
+  transcodeToken = createTranscodeToken();
   playerStatus.textContent = "Preparing a live browser-compatible stream…";
   playerVideo.addEventListener("loadedmetadata", function restorePlaybackRate() {
     playerVideo.removeEventListener("loadedmetadata", restorePlaybackRate);
@@ -246,9 +278,9 @@ function handleVideoError() {
   if (!activeRecording) return;
   if (!usingTranscode) {
     if (BROWSER_CONVERSION_ENABLED && !usingWasm) {
-      startWasmTranscode(playbackPosition());
+      startWasmTranscode(Math.max(playbackPosition(), requestedStartPosition));
     } else {
-      startTranscode(playbackPosition());
+      startTranscode(Math.max(playbackPosition(), requestedStartPosition));
     }
   } else {
     playerStatus.textContent = "The server could not transcode this recording.";
@@ -338,6 +370,7 @@ async function openPlayer(program, startMode = "resume") {
   activeRecording = program;
   window.clearInterval(liveRecordingTimer);
   liveRecordingTimer = null;
+  setForwardSkipMode(false);
   playbackInfo = null;
   commercialBreaks = [];
   skipAdButton.hidden = true;
@@ -392,23 +425,43 @@ async function openPlayer(program, startMode = "resume") {
       ? 0
       : startMode === "bookmark"
         ? playbackInfo.bookmark
-        : playbackInfo.last_position || playbackInfo.bookmark || 0;
+        : playbackInfo.last_position;
     const resumePosition = Math.max(0, resumeMilliseconds / 1000);
+    requestedStartPosition = resumePosition;
     const knownUnsupported = ["hevc", "eac3", "mpeg2video", "mpeg1video", "mp2", "ac3"].some((codec) =>
       [playbackInfo.media.video_codec, playbackInfo.media.audio_codec].includes(codec),
     );
     if (knownUnsupported) {
+      lastSavedPosition = resumePosition;
       if (BROWSER_CONVERSION_ENABLED) startWasmTranscode(resumePosition);
       else startTranscode(resumePosition);
     } else {
+      const metadataReady = new Promise((resolve) => {
+        playerVideo.addEventListener("loadedmetadata", resolve, { once: true });
+      });
       playerVideo.src = appPath(`/api/playback/${recordedId}/stream`);
       playerVideo.load();
-      playerVideo.addEventListener("loadedmetadata", function restorePosition() {
-        playerVideo.removeEventListener("loadedmetadata", restorePosition);
-        if (resumePosition > 5) playerVideo.currentTime = resumePosition;
-        updatePlaybackProgress();
-      });
-      playerVideo.play().then(() => {
+      await metadataReady;
+      const duration = Number.isFinite(playerVideo.duration) ? playerVideo.duration : 0;
+      const seekPosition = duration > 0
+        ? Math.min(resumePosition, Math.max(0, duration - 0.5))
+        : resumePosition;
+      lastSavedPosition = seekPosition;
+      if (seekPosition > 0.5) {
+        const seeked = new Promise((resolve) => {
+          playerVideo.addEventListener("seeked", resolve, { once: true });
+        });
+        playerVideo.currentTime = seekPosition;
+        if (playerVideo.seeking) {
+          await Promise.race([
+            seeked,
+            new Promise((resolve) => window.setTimeout(resolve, 5000)),
+          ]);
+        }
+      }
+      updatePlaybackProgress();
+      await playerVideo.play().then(() => {
+        requestedStartPosition = 0;
         playerStatus.textContent = commercialBreaks.length
           ? `${commercialBreaks.length} commercial break markers loaded`
           : "No commercial break markers are available for this recording.";
@@ -421,11 +474,17 @@ async function openPlayer(program, startMode = "resume") {
   }
 }
 
-function closePlayer() {
+async function closePlayer() {
+  if (document.fullscreenElement === playerShell) {
+    document.exitFullscreen().catch((error) => {
+      playerStatus.textContent = `Could not exit fullscreen: ${error.message}`;
+    });
+  }
   if (!activeRecording) return;
   window.clearInterval(liveRecordingTimer);
   liveRecordingTimer = null;
-  savePlaybackPosition();
+  setForwardSkipMode(false);
+  await savePlaybackPosition();
   cancelTranscode();
   stopWasmPlayback();
   playerVideo.pause();
@@ -439,6 +498,7 @@ function closePlayer() {
   usingTranscode = false;
   usingWasm = false;
   transcodeBase = 0;
+  requestedStartPosition = 0;
   if (playerDialog.open) playerDialog.close();
 }
 
@@ -927,9 +987,11 @@ playerVideo.addEventListener("timeupdate", () => {
 playerVideo.addEventListener("ended", savePlaybackPosition);
 document.querySelector("#jump-back").addEventListener("click", () => {
   seekTo(playbackPosition() - 10);
+  setForwardSkipMode(true);
 });
-document.querySelector("#jump-forward").addEventListener("click", () => {
-  seekTo(playbackPosition() + 30);
+jumpForwardButton.addEventListener("click", () => {
+  seekTo(playbackPosition() + (forwardSkipMode ? 5 : 30));
+  if (forwardSkipMode) setForwardSkipMode(true);
 });
 document.querySelector("#jump-back-ten-minutes").addEventListener("click", () => {
   seekTo(playbackPosition() - 600);
@@ -958,6 +1020,29 @@ document.querySelector("#playback-speed").addEventListener("change", (event) => 
   playerVideo.playbackRate = Number(event.currentTarget.value);
   if ("preservesPitch" in playerVideo) playerVideo.preservesPitch = true;
 });
+setBookmarkButton.addEventListener("click", async () => {
+  if (!activeRecording) return;
+  const recordedId = activeRecording.Recording.RecordedId;
+  const position = playbackPosition();
+  setBookmarkButton.disabled = true;
+  try {
+    const response = await fetch(appPath(`/api/playback/${recordedId}/bookmark`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ position }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || `Request failed (${response.status})`);
+    if (activeRecording?.Recording.RecordedId === recordedId && playbackInfo) {
+      playbackInfo.bookmark = Math.round(position * 1000);
+    }
+    playerStatus.textContent = `MythTV bookmark set at ${formatPlaybackTime(position)}`;
+  } catch (error) {
+    playerStatus.textContent = `Could not set MythTV bookmark: ${error.message}`;
+  } finally {
+    setBookmarkButton.disabled = false;
+  }
+});
 document.querySelector("#subtitle-track").addEventListener("change", (event) => {
   selectSubtitle(event.currentTarget.value);
 });
@@ -977,7 +1062,6 @@ function revealFullscreenControls() {
   if (document.fullscreenElement !== playerShell) return;
   playerShell.classList.add("controls-visible");
   window.clearTimeout(controlsHideTimer);
-  if (playerOverlay.contains(document.activeElement)) return;
   controlsHideTimer = window.setTimeout(() => {
     playerShell.classList.remove("controls-visible");
   }, 2500);

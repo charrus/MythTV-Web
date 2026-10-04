@@ -47,6 +47,35 @@ def test_home_includes_accessible_fullscreen_playback_controls():
     )
     assert b'id="player-exit-fullscreen"' in response.data
     assert b'aria-label="Exit fullscreen"' in response.data
+    speed_options = response.data.split(b'id="playback-speed"', 1)[1].split(
+        b"</select>", 1
+    )[0]
+    expected_speeds = [
+        "0.5",
+        "0.6",
+        "0.7",
+        "0.8",
+        "0.9",
+        "1.0",
+        "1.05",
+        "1.1",
+        "1.15",
+        "1.2",
+        "1.25",
+        "1.3",
+        "1.4",
+        "1.5",
+        "1.6",
+        "1.7",
+        "1.8",
+        "1.9",
+        "2.0",
+    ]
+    assert speed_options.count(b"<option") == len(expected_speeds)
+    assert all(
+        f'value="{speed}"'.encode() in speed_options for speed in expected_speeds
+    )
+    assert b'value="1.0" selected>1.0' in speed_options
     control_order = [
         response.data.index(f'id="{control}"'.encode())
         for control in (
@@ -335,7 +364,8 @@ def test_playback_info_returns_mythtv_markers_and_resume_positions(
             0,
             '{"streams": [{"index": 0, "codec_type": "video", '
             '"codec_name": "h264", "profile": "High", "level": 40, '
-            '"pix_fmt": "yuv420p"}, {"index": 3, "codec_type": "subtitle", '
+            '"pix_fmt": "yuv420p", "avg_frame_rate": "25/1"}, '
+            '{"index": 3, "codec_type": "subtitle", '
             '"codec_name": "subrip", "tags": {"language": "eng"}}]}',
             "",
         ),
@@ -358,9 +388,13 @@ def test_playback_info_returns_mythtv_markers_and_resume_positions(
         if url.endswith("GetRecordedCutList"):
             return Response({"CutList": {"Cuttings": []}})
         if url.endswith("GetLastPlayPos"):
-            return Response({"long": "45000"})
+            offset_type = kwargs["params"].get("OffsetType")
+            return Response({"long": "-1" if offset_type == "Duration" else "1125"})
         if url.endswith("GetSavedBookmark"):
-            return Response({"long": "60000"})
+            offset_type = kwargs["params"].get("OffsetType")
+            if offset_type == "Duration":
+                return Response({"long": "-1"})
+            return Response({"long": "1500"})
         raise AssertionError(f"Unexpected MythTV request: {url}")
 
     monkeypatch.setattr("mythtv_web.requests.get", fake_get)
@@ -376,14 +410,17 @@ def test_playback_info_returns_mythtv_markers_and_resume_positions(
     assert response.json["cut_list"] == []
     assert response.json["last_position"] == 45000
     assert response.json["bookmark"] == 60000
+    assert response.json["media"]["video_frame_rate"] == 25
     assert response.json["media"]["video_profile"] == "High"
     assert response.json["media"]["video_level"] == 40
     assert response.json["media"]["video_pixel_format"] == "yuv420p"
     assert response.json["media"]["subtitles"] == [
         {"index": 3, "codec": "subrip", "language": "eng", "title": ""}
     ]
-    assert len(requests_made) == 4
+    assert len(requests_made) == 6
     assert all(call[1]["params"]["ChanId"] == 123 for call in requests_made)
+    assert requests_made[4][1]["params"]["OffsetType"] == "Position"
+    assert requests_made[5][1]["params"]["OffsetType"] == "Position"
 
 
 def test_live_playback_status_refreshes_end_time_and_commercial_markers(
@@ -519,6 +556,9 @@ def test_playback_position_saves_duration_milliseconds(monkeypatch, tmp_path):
         def raise_for_status(self):
             pass
 
+        def json(self):
+            return {"bool": True}
+
     def fake_post(url, **kwargs):
         captured["url"] = url
         captured.update(kwargs)
@@ -539,6 +579,133 @@ def test_playback_position_saves_duration_milliseconds(monkeypatch, tmp_path):
     assert captured["url"] == "http://127.0.0.1:6544/Dvr/SetLastPlayPos"
     assert captured["params"]["Offset"] == 45500
     assert captured["params"]["OffsetType"] == "Duration"
+
+
+def test_playback_position_reports_mythtv_rejection(monkeypatch, tmp_path):
+    programs = [
+        {
+            "Title": "Example series",
+            "Recording": {"RecordedId": 42, "RecGroup": "Seasons"},
+            "Channel": {"ChanId": 123},
+            "StartTime": "2026-10-03T10:00:00Z",
+        }
+    ]
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"bool": False}
+
+    monkeypatch.setattr("mythtv_web.requests.post", lambda *args, **kwargs: Response())
+    monkeypatch.setattr(
+        "mythtv_web._probe_recording",
+        lambda *args, **kwargs: {"video_frame_rate": None},
+    )
+    app = create_app()
+    cache_path = tmp_path / "recordings.json"
+    cache_path.write_text(json.dumps({"cached_at": time.time(), "programs": programs}))
+    app.config["MYTHTV_RECORDINGS_CACHE_PATH"] = str(cache_path)
+
+    response = app.test_client().post(
+        "/api/playback/42/position", json={"position": 45.5}
+    )
+
+    assert response.status_code == 502
+    assert response.json == {"error": "MythTV did not save playback position"}
+
+
+def test_playback_position_falls_back_to_raw_frames_without_seek_table(
+    monkeypatch, tmp_path
+):
+    programs = [
+        {
+            "Title": "Example series",
+            "Recording": {"RecordedId": 42, "RecGroup": "Seasons"},
+            "Channel": {"ChanId": 123},
+            "StartTime": "2026-10-03T10:00:00Z",
+        }
+    ]
+    responses = iter([{"bool": False}, {"bool": True}])
+    calls = []
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return next(responses)
+
+    def fake_post(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setattr("mythtv_web.requests.post", fake_post)
+    monkeypatch.setattr(
+        "mythtv_web._probe_recording",
+        lambda *args, **kwargs: {"video_frame_rate": 25},
+    )
+    app = create_app()
+    cache_path = tmp_path / "recordings.json"
+    cache_path.write_text(json.dumps({"cached_at": time.time(), "programs": programs}))
+    app.config["MYTHTV_RECORDINGS_CACHE_PATH"] = str(cache_path)
+
+    response = app.test_client().post(
+        "/api/playback/42/position", json={"position": 45.5}
+    )
+
+    assert response.status_code == 200
+    assert response.json == {"saved": True}
+    assert calls[0][1]["params"]["OffsetType"] == "Duration"
+    assert calls[0][1]["params"]["Offset"] == 45500
+    assert calls[1][1]["params"]["Offset"] == 1138
+    assert "OffsetType" not in calls[1][1]["params"]
+
+
+def test_playback_bookmark_saves_mythtv_saved_bookmark(monkeypatch, tmp_path):
+    programs = [
+        {
+            "Title": "Example series",
+            "Recording": {"RecordedId": 42, "RecGroup": "Seasons"},
+            "Channel": {"ChanId": 123},
+            "StartTime": "2026-10-03T10:00:00Z",
+        }
+    ]
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"bool": True}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("mythtv_web.requests.post", fake_post)
+    app = create_app()
+    cache_path = tmp_path / "recordings.json"
+    cache_path.write_text(json.dumps({"cached_at": time.time(), "programs": programs}))
+    app.config["MYTHTV_RECORDINGS_CACHE_PATH"] = str(cache_path)
+
+    response = app.test_client().post(
+        "/api/playback/42/bookmark", json={"position": 45.5}
+    )
+
+    assert response.status_code == 200
+    assert response.json == {"saved": True}
+    assert captured["url"] == "http://127.0.0.1:6544/Dvr/SetSavedBookmark"
+    assert captured["params"] == {
+        "RecordedId": 42,
+        "ChanId": 123,
+        "StartTime": "2026-10-03T10:00:00Z",
+        "OffsetType": "Duration",
+        "Offset": 45500,
+    }
 
 
 def test_transcode_cancel_terminates_only_a_tokenized_process(monkeypatch, tmp_path):

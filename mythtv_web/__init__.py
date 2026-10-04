@@ -7,6 +7,8 @@ import shutil
 import signal
 import subprocess
 import time
+from fractions import Fraction
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
@@ -74,6 +76,7 @@ def _recording_url(app: Flask, recorded_id: int) -> str:
     return f"{app.config['MYTHTV_BACKEND_URL']}/Content/GetRecording?RecordedId={recorded_id}"
 
 
+@lru_cache(maxsize=128)
 def _probe_recording(app: Flask, recorded_id: int) -> dict:
     ffprobe = shutil.which("ffprobe")
     if not ffprobe:
@@ -82,6 +85,7 @@ def _probe_recording(app: Flask, recorded_id: int) -> dict:
             "video_profile": None,
             "video_level": None,
             "video_pixel_format": None,
+            "video_frame_rate": None,
             "audio_codec": None,
             "subtitles": [],
         }
@@ -92,7 +96,7 @@ def _probe_recording(app: Flask, recorded_id: int) -> dict:
                 "-v",
                 "error",
                 "-show_entries",
-                "stream=index,codec_type,codec_name,profile,level,pix_fmt:stream_tags=language,title",
+                "stream=index,codec_type,codec_name,profile,level,pix_fmt,avg_frame_rate,r_frame_rate:stream_tags=language,title",
                 "-of",
                 "json",
                 _recording_url(app, recorded_id),
@@ -110,6 +114,7 @@ def _probe_recording(app: Flask, recorded_id: int) -> dict:
             "video_profile": None,
             "video_level": None,
             "video_pixel_format": None,
+            "video_frame_rate": None,
             "audio_codec": None,
             "subtitles": [],
         }
@@ -120,6 +125,7 @@ def _probe_recording(app: Flask, recorded_id: int) -> dict:
         "video_profile": None,
         "video_level": None,
         "video_pixel_format": None,
+        "video_frame_rate": None,
         "audio_codec": None,
     }
     for stream in streams:
@@ -129,6 +135,14 @@ def _probe_recording(app: Flask, recorded_id: int) -> dict:
             codecs["video_profile"] = stream.get("profile")
             codecs["video_level"] = stream.get("level")
             codecs["video_pixel_format"] = stream.get("pix_fmt")
+            for value in (stream.get("avg_frame_rate"), stream.get("r_frame_rate")):
+                try:
+                    frame_rate = float(Fraction(value))
+                except (TypeError, ValueError, ZeroDivisionError):
+                    continue
+                if math.isfinite(frame_rate) and frame_rate > 0:
+                    codecs["video_frame_rate"] = frame_rate
+                    break
         elif codec_type == "audio" and codecs["audio_codec"] is None:
             codecs["audio_codec"] = stream.get("codec_name")
         elif codec_type == "subtitle":
@@ -142,6 +156,56 @@ def _probe_recording(app: Flask, recorded_id: int) -> dict:
                 }
             )
     return {**codecs, "subtitles": subtitles}
+
+
+def _post_playback_offset(
+    app: Flask, endpoint: str, params: dict, recorded_id: int, position: float
+) -> bool:
+    request_options = {
+        "headers": {"Accept": "application/json"},
+        "timeout": app.config["MYTHTV_TIMEOUT"],
+    }
+    url = f"{app.config['MYTHTV_BACKEND_URL']}/Dvr/{endpoint}"
+    response = requests.post(
+        url,
+        params={
+            **params,
+            "OffsetType": "Duration",
+            "Offset": round(position * 1000),
+        },
+        **request_options,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict) or payload.get("bool") is not False:
+        return isinstance(payload, dict) and payload.get("bool") is True
+
+    frame_rate = _probe_recording(app, recorded_id).get("video_frame_rate")
+    if not frame_rate:
+        return False
+    response = requests.post(
+        url,
+        params={**params, "Offset": round(position * frame_rate)},
+        **request_options,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    return isinstance(payload, dict) and payload.get("bool") is True
+
+
+def _read_frame_offset(
+    app: Flask, endpoint: str, recorded_id: int, params: dict
+) -> int:
+    response = requests.get(
+        f"{app.config['MYTHTV_BACKEND_URL']}/Dvr/{endpoint}",
+        params={**params, "OffsetType": "Position"},
+        headers={"Accept": "application/json"},
+        timeout=app.config["MYTHTV_TIMEOUT"],
+    )
+    response.raise_for_status()
+    frames = int(response.json().get("long", 0))
+    frame_rate = _probe_recording(app, recorded_id).get("video_frame_rate")
+    return round(frames * 1000 / frame_rate) if frame_rate else 0
 
 
 def _load_all_recordings(app: Flask) -> list[dict]:
@@ -487,6 +551,16 @@ def create_app() -> Flask:
                 timeout=app.config["MYTHTV_TIMEOUT"],
             )
             bookmark.raise_for_status()
+            last_position_ms = int(last_position.json().get("long", 0))
+            bookmark_ms = int(bookmark.json().get("long", 0))
+            if last_position_ms < 0:
+                last_position_ms = _read_frame_offset(
+                    app, "GetLastPlayPos", recorded_id, params
+                )
+            if bookmark_ms < 0:
+                bookmark_ms = _read_frame_offset(
+                    app, "GetSavedBookmark", recorded_id, params
+                )
         except (requests.RequestException, ValueError) as error:
             app.logger.warning("MythTV playback metadata request failed: %s", error)
             return jsonify(error="Could not load MythTV playback metadata"), 502
@@ -496,8 +570,8 @@ def create_app() -> Flask:
             media=_probe_recording(app, recorded_id),
             comm_breaks=(comm_breaks.json().get("CutList") or {}).get("Cuttings", []),
             cut_list=(cut_list.json().get("CutList") or {}).get("Cuttings", []),
-            last_position=int(last_position.json().get("long", 0)),
-            bookmark=int(bookmark.json().get("long", 0)),
+            last_position=last_position_ms,
+            bookmark=bookmark_ms,
         )
 
     @app.get("/api/playback/<int:recorded_id>/live-status")
@@ -619,22 +693,61 @@ def create_app() -> Flask:
         ):
             return jsonify(error="A non-negative playback position is required"), 400
         try:
-            response = requests.post(
-                f"{app.config['MYTHTV_BACKEND_URL']}/Dvr/SetLastPlayPos",
-                params={
+            saved = _post_playback_offset(
+                app,
+                "SetLastPlayPos",
+                {
                     "RecordedId": recorded_id,
                     "ChanId": (program.get("Channel") or {}).get("ChanId", 0),
                     "StartTime": program.get("StartTime", ""),
-                    "OffsetType": "Duration",
-                    "Offset": round(position * 1000),
                 },
-                headers={"Accept": "application/json"},
-                timeout=app.config["MYTHTV_TIMEOUT"],
+                recorded_id,
+                position,
             )
-            response.raise_for_status()
-        except requests.RequestException as error:
+            if not saved:
+                app.logger.warning("MythTV rejected playback position save")
+                return jsonify(error="MythTV did not save playback position"), 502
+        except (requests.RequestException, ValueError) as error:
             app.logger.warning("MythTV playback position save failed: %s", error)
             return jsonify(error="Could not save playback position"), 502
+        return jsonify(saved=True)
+
+    @app.post("/api/playback/<int:recorded_id>/bookmark")
+    def save_playback_bookmark(recorded_id):
+        try:
+            program = _active_recording(app, recorded_id)
+        except (requests.RequestException, ValueError, OSError) as error:
+            app.logger.warning("MythTV playback lookup failed: %s", error)
+            return jsonify(error="MythTV backend is unavailable"), 502
+        if program is None:
+            return jsonify(error="Recording not found"), 404
+
+        position = request.json.get("position") if request.is_json else None
+        if (
+            isinstance(position, bool)
+            or not isinstance(position, (int, float))
+            or not math.isfinite(position)
+            or position < 0
+        ):
+            return jsonify(error="A non-negative playback position is required"), 400
+        try:
+            saved = _post_playback_offset(
+                app,
+                "SetSavedBookmark",
+                {
+                    "RecordedId": recorded_id,
+                    "ChanId": (program.get("Channel") or {}).get("ChanId", 0),
+                    "StartTime": program.get("StartTime", ""),
+                },
+                recorded_id,
+                position,
+            )
+            if not saved:
+                app.logger.warning("MythTV rejected playback bookmark save")
+                return jsonify(error="MythTV did not save playback bookmark"), 502
+        except (requests.RequestException, ValueError) as error:
+            app.logger.warning("MythTV bookmark save failed: %s", error)
+            return jsonify(error="Could not save playback bookmark"), 502
         return jsonify(saved=True)
 
     @app.get("/api/playback/<int:recorded_id>/transcode")
