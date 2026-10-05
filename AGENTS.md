@@ -9,7 +9,7 @@ This project is a Python web server that will provide a browser-based interface 
 1. Use Python and Flask for the web application, following the existing app-factory structure in `mythtv_web/`.
 2. Keep the project environment local in `.venv/`; declare application dependencies in `requirements.txt` and development tools in `requirements-dev.txt`.
 3. Bind the application server to `0.0.0.0` on port `6555`; the host firewall must restrict access to trusted clients because direct Flask access bypasses Apache authentication.
-4. Use Apache as the public-facing reverse proxy and authentication boundary. Do not assume requests reaching Flask are authenticated unless a feature explicitly verifies that trust boundary.
+4. Use Apache as the public-facing reverse proxy and authentication boundary; Flask does not inspect authentication identity.
 5. Keep port `6555` restricted by the host firewall to trusted clients and networks; do not expose it to untrusted networks.
 6. Keep MythTV integration local to this server. Add specific MythTV features incrementally as requirements are agreed and documented.
 7. Preserve the existing `/` landing route and `/healthz` health endpoint unless a change is intentionally required and documented.
@@ -18,7 +18,7 @@ This project is a Python web server that will provide a browser-based interface 
 10. Capture Gunicorn access and error logs in `mythtv-web-YYYY-MM-DDT000000.log` files named for the start of each local-day period, rotate at local midnight, and retain no more than 10 period files including the active file.
 11. Keep MythTV service calls server-side in Flask. Configure the local backend with `MYTHTV_BACKEND_URL`; do not expose MythTV service endpoints directly to browsers.
 12. Group recorded programs by title and show every recording in a selected group, consistent with MythFrontend's recordings workflow.
-13. Require an Apache-authenticated user identity and explicit confirmation for recording-file deletion; never force-delete recordings by default. Schedule-rule create, edit, and delete actions rely on the Apache and firewall access boundaries and do not require an app-level identity header. Rule deletion still requires explicit confirmation.
+13. Require explicit confirmation for recording-file deletion and never force-delete recordings by default. Public access is controlled by Apache and direct internal access by the host firewall. Schedule-rule create, edit, and delete actions use those same external access boundaries. Rule deletion still requires explicit confirmation.
 
 ## Development Guidance
 

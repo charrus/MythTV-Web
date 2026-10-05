@@ -761,8 +761,6 @@ def create_app() -> Flask:
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict) or payload.get("confirmed") is not True:
             return jsonify(error="Explicit confirmation is required"), 400
-        if not request.headers.get("X-Authenticated-User", "").strip():
-            return jsonify(error="An Apache-authenticated user is required"), 401
 
         try:
             program = _active_recording(app, recorded_id)

@@ -492,6 +492,75 @@ def test_schedule_delete_removes_confirmed_rule_without_app_identity(monkeypatch
     assert captured["json"] == {"RecordId": 1135}
 
 
+def test_recording_delete_requires_explicit_confirmation_without_identity(monkeypatch):
+    def unexpected_post(*args, **kwargs):
+        raise AssertionError("unconfirmed recording deletion must not reach MythTV")
+
+    monkeypatch.setattr("mythtv_web.requests.post", unexpected_post)
+    response = (
+        create_app()
+        .test_client()
+        .delete("/api/recordings/39615", json={"confirmed": False})
+    )
+
+    assert response.status_code == 400
+    assert response.json == {"error": "Explicit confirmation is required"}
+
+
+def test_confirmed_inkigayo_recording_delete_allows_internal_client(
+    monkeypatch, tmp_path
+):
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"bool": True}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("mythtv_web.requests.post", fake_post)
+    app = create_app()
+    cache_path = tmp_path / "recordings.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "cached_at": time.time(),
+                "programs": [
+                    {
+                        "Title": "Inkigayo",
+                        "StartTime": "2016-01-01T00:00:59Z",
+                        "Recording": {"RecordedId": 39615, "RecGroup": "Seasons"},
+                        "Channel": {"ChanId": 814},
+                    }
+                ],
+            }
+        )
+    )
+    app.config["MYTHTV_RECORDINGS_CACHE_PATH"] = str(cache_path)
+
+    response = app.test_client().delete(
+        "/api/recordings/39615", json={"confirmed": True}
+    )
+
+    assert response.status_code == 200
+    assert response.json == {"deleted": True}
+    assert captured["url"] == "http://127.0.0.1:6544/Dvr/DeleteRecording"
+    assert captured["json"] == {
+        "RecordedId": 39615,
+        "ChanId": 814,
+        "StartTime": "2016-01-01T00:00:59Z",
+        "ForceDelete": False,
+        "AllowRerecord": False,
+    }
+    assert not cache_path.exists()
+
+
 def test_program_list_is_proxied_with_pagination(monkeypatch):
     captured = {}
 
