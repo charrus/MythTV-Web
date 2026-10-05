@@ -50,6 +50,7 @@ def test_home_includes_accessible_fullscreen_playback_controls():
     assert b'id="jump-back-ten-minutes"' in response.data
     assert b'id="jump-forward-ten-minutes"' in response.data
     assert b'id="player-toggle"' in response.data
+    assert b'id="player-record-program"' not in response.data
     assert (
         b'id="skip-ad"' in response.data
         and b'id="skip-ad" type="button"' in response.data

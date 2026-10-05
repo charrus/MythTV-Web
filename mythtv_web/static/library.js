@@ -24,7 +24,6 @@ const deleteButton = document.querySelector("#delete-confirm-button");
 const deleteCancelButton = document.querySelector("#delete-dialog-cancel");
 const deleteStatus = document.querySelector("#delete-status");
 const playerStatus = document.querySelector("#player-status");
-const playerRecordButton = document.querySelector("#player-record-program");
 const playbackSeek = document.querySelector("#playback-seek");
 const smartSkip = document.querySelector("#smart-skip");
 const skipAdButton = document.querySelector("#skip-ad");
@@ -370,14 +369,6 @@ async function openPlayer(program, startMode = "resume") {
   const recordedId = program.Recording?.RecordedId;
   if (!recordedId) return;
   activeRecording = program;
-  if (playerRecordButton) {
-    setScheduleButtonLabel(playerRecordButton, "Record this program");
-    const endTime = Date.parse(program.EndTime || "");
-    playerRecordButton.disabled =
-      !Number(program.Channel?.ChanId)
-      || !program.StartTime
-      || (Number.isFinite(endTime) && endTime <= Date.now());
-  }
   window.clearInterval(liveRecordingTimer);
   liveRecordingTimer = null;
   setForwardSkipMode(false);
@@ -2033,15 +2024,6 @@ function activateView(name) {
   if (name === "guide") loadGuide();
   if (name === "status") loadStatus();
   window.history.replaceState(null, "", `${window.location.pathname}#${name}`);
-}
-
-if (playerRecordButton) {
-  playerRecordButton.addEventListener("click", () => {
-    const channelId = Number(activeRecording?.Channel?.ChanId || 0);
-    if (activeRecording && channelId > 0) {
-      scheduleProgram(activeRecording, channelId, playerRecordButton, playerStatus);
-    }
-  });
 }
 
 if (viewButtons.length) {

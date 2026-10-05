@@ -1907,21 +1907,6 @@ h1 {
   cursor: pointer;
 }
 
-.player-record-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-}
-
-.player-record-icon {
-  width: 16px;
-  height: 16px;
-  color: #e47b72;
-  fill: currentColor;
-  stroke: none;
-}
-
 .player-button:hover:not(:disabled) {
   border-color: var(--accent);
 }
