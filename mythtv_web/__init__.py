@@ -98,6 +98,29 @@ def _normalize_group_title(title: str) -> str:
     return " ".join(title.casefold().split())
 
 
+def _commercial_breaks_from_cuttings(cuttings: list) -> list[dict[str, int]]:
+    if not isinstance(cuttings, list):
+        return []
+    breaks = []
+    start = None
+    for cutting in cuttings:
+        if not isinstance(cutting, dict):
+            continue
+        try:
+            mark = int(cutting.get("Mark"))
+            offset = int(cutting.get("Offset"))
+        except (TypeError, ValueError):
+            continue
+
+        if mark == 4:
+            start = offset
+        elif mark == 5 and start is not None:
+            if offset > start:
+                breaks.append({"Start": start, "End": offset})
+            start = None
+    return breaks
+
+
 def _recording_preview_url(program: dict) -> str | None:
     recorded_id = (program.get("Recording") or {}).get("RecordedId")
     if not isinstance(recorded_id, int) or recorded_id <= 0:
@@ -964,7 +987,9 @@ def create_app() -> Flask:
         return jsonify(
             program=program,
             media=_probe_recording(app, recorded_id),
-            comm_breaks=(comm_breaks.json().get("CutList") or {}).get("Cuttings", []),
+            comm_breaks=_commercial_breaks_from_cuttings(
+                (comm_breaks.json().get("CutList") or {}).get("Cuttings", [])
+            ),
             cut_list=(cut_list.json().get("CutList") or {}).get("Cuttings", []),
             last_position=last_position_ms,
             bookmark=bookmark_ms,
@@ -1010,7 +1035,9 @@ def create_app() -> Flask:
                     timeout=app.config["MYTHTV_TIMEOUT"],
                 )
                 markers.raise_for_status()
-                comm_breaks = (markers.json().get("CutList") or {}).get("Cuttings", [])
+                comm_breaks = _commercial_breaks_from_cuttings(
+                    (markers.json().get("CutList") or {}).get("Cuttings", [])
+                )
         except (requests.RequestException, ValueError, AttributeError) as error:
             app.logger.info("MythTV live playback status refresh failed: %s", error)
             return jsonify(error="Could not refresh MythTV recording status"), 502

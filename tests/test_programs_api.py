@@ -833,15 +833,15 @@ def test_preview_proxy_rejects_invalid_recording_id(monkeypatch):
     assert response.json == {"error": "A valid recording ID is required"}
 
 
-def test_playback_info_returns_mythtv_markers_and_resume_positions(
+def test_cheap_seats_playback_normalizes_mythtv_markers_and_resume_positions(
     monkeypatch, tmp_path
 ):
     programs = [
         {
-            "Title": "Example series",
-            "Recording": {"RecordedId": 42, "RecGroup": "Seasons"},
-            "Channel": {"ChanId": 123},
-            "StartTime": "2026-10-03T10:00:00Z",
+            "Title": "The Cheap Seats",
+            "Recording": {"RecordedId": 39599, "RecGroup": "Default"},
+            "Channel": {"ChanId": 1001},
+            "StartTime": "2026-09-29T10:36:01Z",
         }
     ]
     requests_made = []
@@ -872,7 +872,18 @@ def test_playback_info_returns_mythtv_markers_and_resume_positions(
     def fake_get(url, **kwargs):
         requests_made.append((url, kwargs))
         if url.endswith("GetRecordedCommBreak"):
-            return Response({"CutList": {"Cuttings": [{"Start": 10000, "End": 30000}]}})
+            return Response(
+                {
+                    "CutList": {
+                        "Cuttings": [
+                            {"Mark": 4, "Offset": 682600},
+                            {"Mark": 5, "Offset": 831560},
+                            {"Mark": 4, "Offset": 1318960},
+                            {"Mark": 5, "Offset": 1492200},
+                        ]
+                    }
+                }
+            )
         if url.endswith("GetRecordedCutList"):
             return Response({"CutList": {"Cuttings": []}})
         if url.endswith("GetLastPlayPos"):
@@ -891,10 +902,13 @@ def test_playback_info_returns_mythtv_markers_and_resume_positions(
     cache_path.write_text(json.dumps({"cached_at": time.time(), "programs": programs}))
     app.config["MYTHTV_RECORDINGS_CACHE_PATH"] = str(cache_path)
 
-    response = app.test_client().get("/api/playback/42")
+    response = app.test_client().get("/api/playback/39599")
 
     assert response.status_code == 200
-    assert response.json["comm_breaks"] == [{"Start": 10000, "End": 30000}]
+    assert response.json["comm_breaks"] == [
+        {"Start": 682600, "End": 831560},
+        {"Start": 1318960, "End": 1492200},
+    ]
     assert response.json["cut_list"] == []
     assert response.json["last_position"] == 45000
     assert response.json["bookmark"] == 60000
@@ -906,7 +920,7 @@ def test_playback_info_returns_mythtv_markers_and_resume_positions(
         {"index": 3, "codec": "subrip", "language": "eng", "title": ""}
     ]
     assert len(requests_made) == 6
-    assert all(call[1]["params"]["ChanId"] == 123 for call in requests_made)
+    assert all(call[1]["params"]["ChanId"] == 1001 for call in requests_made)
     assert requests_made[4][1]["params"]["OffsetType"] == "Position"
     assert requests_made[5][1]["params"]["OffsetType"] == "Position"
 
@@ -953,7 +967,14 @@ def test_live_playback_status_refreshes_end_time_and_commercial_markers(
             )
         if url.endswith("Dvr/GetRecordedCommBreak"):
             return Response(
-                {"CutList": {"Cuttings": [{"Start": 120000, "End": 180000}]}}
+                {
+                    "CutList": {
+                        "Cuttings": [
+                            {"Mark": 4, "Offset": 120000},
+                            {"Mark": 5, "Offset": 180000},
+                        ]
+                    }
+                }
             )
         raise AssertionError(f"Unexpected MythTV request: {url}")
 
