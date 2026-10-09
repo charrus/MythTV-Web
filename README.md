@@ -28,7 +28,13 @@ The home page groups recordings by program title, like MythFrontend. Selecting a
 
 ## Guide and backend status
 
-The Upcoming tab shows scheduled programs, while Guide browses a four-hour program window and can create, edit, or delete recording rules through MythTV's `Dvr` services. Schedule-rule requests do not require an application-level user identity; Apache protects the public route, and the host firewall must restrict direct Flask access. Status summarizes backend version, connected encoders, and encoder state. Live TV lists programs currently airing on visible channels and offers the same schedule action; it does not start live playback because MythTV's HTTP services on this host do not expose a tuner-start or live-channel stream endpoint.
+The Upcoming tab shows scheduled programs, while Guide browses a four-hour program window and can create, edit, or delete recording rules through MythTV's `Dvr` services. These actions require a Flask account session, but Flask does not pass account identity to MythTV. Apache protects public access, and the host firewall must restrict direct Flask access. Status summarizes backend version, connected encoders, and encoder state. Live TV lists programs currently airing on visible channels and offers the same schedule action; it does not start live playback because MythTV's HTTP services on this host do not expose a tuner-start or live-channel stream endpoint.
+
+## Application accounts
+
+The Flask app requires sign-in for the library and API; `/healthz` remains public. Accounts are stored in `.run/users.sqlite` with Werkzeug password hashes. On an empty account database, the app creates the initial administrator `admin` with password `mythtv-admin`; that account must change its password at first sign-in. Override the initial account before the first start with `MYTHTV_INITIAL_ADMIN_USERNAME` and `MYTHTV_INITIAL_ADMIN_PASSWORD`. The password setting is only used when the database has no users; it does not reset existing credentials. New accounts are also required to change their initial password. Admins manage users, roles, and passwords at `/admin/users`; supported roles are `admin` and `user`.
+
+`MYTHTV_AUTH_DATABASE` selects another account database path. Authentication cookies are persistent for 365 days by default and refresh while the user is active; set `MYTHTV_SESSION_LIFETIME_DAYS` to choose another lifetime. Flask creates and persists a random session-signing key under `.run/` by default; set `MYTHTV_SECRET_KEY` to supply a stable key explicitly, and keep it private. Set `MYTHTV_SESSION_COOKIE_SECURE=1` when all browser access uses HTTPS. For deployments using the known initial password, change it immediately on first sign-in; preferably set a unique `MYTHTV_INITIAL_ADMIN_PASSWORD` before the first start.
 
 ## Browser playback
 
@@ -73,6 +79,7 @@ Use the launcher to manage Gunicorn in the background. It records its PID and wr
 ./scripts/mythtv-web.sh stop
 ```
 
+The root-level `launch_server.sh` accepts the same commands and delegates to this service manager.
 The launcher requires dependencies to be installed in `.venv/`. It only stops the Gunicorn process identified by its own PID file and refuses to signal a different process. Gunicorn access and error output is written to `.run/mythtv-web-YYYY-MM-DDT000000.log`, where the timestamp is the start of that log day in the server's local timezone. Rotation happens at local midnight; at most 10 dated log files are retained, including the active file. Existing logs with the previous `gunicorn-` prefix are migrated when the service starts.
 
 ## Apache reverse proxy

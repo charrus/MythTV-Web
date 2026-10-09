@@ -1,11 +1,30 @@
 import json
 import signal
+import sqlite3
 import subprocess
 import time
 
+import pytest
 import requests
+from flask import Flask
 
 from mythtv_web import create_app
+
+
+@pytest.fixture(autouse=True)
+def authenticated_api_clients(monkeypatch, tmp_path):
+    monkeypatch.setenv("MYTHTV_AUTH_DATABASE", str(tmp_path / "users.sqlite"))
+    original_test_client = Flask.test_client
+
+    def test_client(app, *args, **kwargs):
+        client = original_test_client(app, *args, **kwargs)
+        with sqlite3.connect(app.config["AUTH_DATABASE_PATH"]) as connection:
+            connection.execute("UPDATE users SET must_change_password = 0 WHERE id = 1")
+        with client.session_transaction() as user_session:
+            user_session["user_id"] = 1
+        return client
+
+    monkeypatch.setattr(Flask, "test_client", test_client)
 
 
 def test_home_renders_recordings_library():

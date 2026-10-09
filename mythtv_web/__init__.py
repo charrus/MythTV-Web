@@ -24,6 +24,8 @@ from flask import (
 )
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from .auth import init_auth
+
 DEFAULT_BACKEND_URL = "http://127.0.0.1:6544"
 PRIMARY_RECORDING_GROUP = "Seasons"
 ACTIVE_RECORDING_GROUPS = {"Default", PRIMARY_RECORDING_GROUP}
@@ -342,7 +344,7 @@ def _load_all_recordings(app: Flask) -> list[dict]:
             fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
-def create_app() -> Flask:
+def create_app(config: dict | None = None) -> Flask:
     app = Flask(__name__)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
 
@@ -363,6 +365,26 @@ def create_app() -> Flask:
     app.config["MYTHTV_TRANSCODE_DIR"] = str(
         Path(__file__).resolve().parents[1] / ".run" / "transcodes"
     )
+    app.config.update(
+        AUTH_DATABASE_PATH=os.environ.get(
+            "MYTHTV_AUTH_DATABASE",
+            str(Path(__file__).resolve().parents[1] / ".run" / "users.sqlite"),
+        ),
+        INITIAL_ADMIN_USERNAME=os.environ.get("MYTHTV_INITIAL_ADMIN_USERNAME", "admin"),
+        INITIAL_ADMIN_PASSWORD=os.environ.get(
+            "MYTHTV_INITIAL_ADMIN_PASSWORD", "mythtv-admin"
+        ),
+        SECRET_KEY=os.environ.get("MYTHTV_SECRET_KEY"),
+        SESSION_COOKIE_SECURE=os.environ.get("MYTHTV_SESSION_COOKIE_SECURE", "0")
+        in {"1", "true", "yes"},
+    )
+    session_lifetime_days = int(os.environ.get("MYTHTV_SESSION_LIFETIME_DAYS", "365"))
+    if session_lifetime_days < 1:
+        raise ValueError("MYTHTV_SESSION_LIFETIME_DAYS must be at least 1")
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=session_lifetime_days)
+    if config:
+        app.config.update(config)
+    init_auth(app)
 
     @app.get("/")
     def index():

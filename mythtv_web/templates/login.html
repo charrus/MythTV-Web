@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#182532">
+    <title>Sign in | MythTV</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='library.css') }}">
+  </head>
+  <body class="auth-page">
+    <main class="auth-shell">
+      <a class="auth-brand" href="{{ url_for('auth.login') }}" aria-label="MythTV">
+        <img src="{{ url_for('static', filename='mythtv.png') }}" alt="MythTV">
+      </a>
+      <p class="eyebrow">MYTHTV WEB</p>
+      <h1>Sign in</h1>
+      <p class="auth-description">Use your MythTV Web account to continue.</p>
+      {% if error %}<p class="auth-error" role="alert">{{ error }}</p>{% endif %}
+      <form class="auth-form" method="post" action="{{ url_for('auth.login') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
+        <label for="username">Username</label>
+        <input id="username" name="username" autocomplete="username" required autofocus>
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button class="auth-submit" type="submit">Sign in</button>
+      </form>
+    </main>
+  </body>
+</html>

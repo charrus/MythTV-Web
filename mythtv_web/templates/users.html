@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#182532">
+    <title>User accounts | MythTV</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='library.css') }}">
+  </head>
+  <body class="auth-page">
+    <header class="topbar account-topbar">
+      <a class="brand" href="{{ url_for('index') }}" aria-label="MythTV home">
+        <img class="brand-logo" src="{{ url_for('static', filename='mythtv.png') }}" alt="">
+      </a>
+      <nav aria-label="Account navigation"><a class="nav-link" href="{{ url_for('index') }}">Library</a></nav>
+      <div class="system-state">
+        <span>{{ current_user.username }} · Admin</span>
+        <form method="post" action="{{ url_for('auth.logout') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="account-action" type="submit">Sign out</button>
+        </form>
+      </div>
+    </header>
+    <main class="users-shell">
+      <header class="library-heading">
+        <div>
+          <p class="eyebrow">ADMINISTRATION</p>
+          <h1>User accounts</h1>
+          <p class="library-summary">Manage access and temporary passwords.</p>
+        </div>
+      </header>
+      {% for category, message in get_flashed_messages(with_categories=true) %}
+        <p class="auth-notice {{ category }}" role="status">{{ message }}</p>
+      {% endfor %}
+      <section class="user-create" aria-labelledby="add-user-title">
+        <h2 id="add-user-title">Add user</h2>
+        <form class="user-create-form" method="post" action="{{ url_for('auth.add_user') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label>Username<input name="username" autocomplete="off" maxlength="64" required></label>
+          <label>Temporary password<input name="password" type="password" autocomplete="new-password" minlength="12" required></label>
+          <label>Role<select name="role"><option value="user">User</option><option value="admin">Admin</option></select></label>
+          <button class="auth-submit" type="submit">Add account</button>
+        </form>
+        <p class="auth-description">New accounts must change their temporary password at first sign-in.</p>
+      </section>
+      <section class="user-list" aria-label="Existing users">
+        {% for user in users %}
+          <article class="user-row">
+            <div class="user-identity">
+              <h2>{{ user.username }}</h2>
+              <p>{{ user.role|title }}{% if user.must_change_password %} · Password change required{% endif %}</p>
+            </div>
+            <form class="user-role-form" method="post" action="{{ url_for('auth.update_role', user_id=user.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <label class="visually-hidden" for="role-{{ user.id }}">Role for {{ user.username }}</label>
+              <select id="role-{{ user.id }}" name="role">
+                <option value="user"{% if user.role == "user" %} selected{% endif %}>User</option>
+                <option value="admin"{% if user.role == "admin" %} selected{% endif %}>Admin</option>
+              </select>
+              <button class="account-action" type="submit">Update role</button>
+            </form>
+            <form class="user-password-form" method="post" action="{{ url_for('auth.set_user_password', user_id=user.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <label class="visually-hidden" for="password-{{ user.id }}">New password for {{ user.username }}</label>
+              <input id="password-{{ user.id }}" name="password" type="password" autocomplete="new-password" minlength="12" placeholder="New password" required>
+              <label class="force-change"><input type="checkbox" name="must_change_password" checked> Require change</label>
+              <button class="account-action" type="submit">Set password</button>
+            </form>
+            <form method="post" action="{{ url_for('auth.delete_user', user_id=user.id) }}" onsubmit="return confirm('Delete this user account?')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="account-action danger" type="submit"{% if user.id == current_user.id %} disabled title="You cannot delete your own account"{% endif %}>Delete</button>
+            </form>
+          </article>
+        {% endfor %}
+      </section>
+    </main>
+  </body>
+</html>

@@ -2,14 +2,14 @@
 
 ## Project Description
 
-This project is a Python web server that will provide a browser-based interface to the MythTV services available locally on the server. The application is built with Flask and is intended to sit behind Apache, which provides external access and authentication.
+This project is a Python web server that provides a browser-based interface to the MythTV services available locally on the server. The application is built with Flask and is intended to sit behind Apache, which provides external access and authentication. Flask also authenticates its own local accounts for application access and role management; it does not consume Apache's authentication identity.
 
 ## Requirements
 
 1. Use Python and Flask for the web application, following the existing app-factory structure in `mythtv_web/`.
 2. Keep the project environment local in `.venv/`; declare application dependencies in `requirements.txt` and development tools in `requirements-dev.txt`.
 3. Bind the application server to `0.0.0.0` on port `6555`; the host firewall must restrict access to trusted clients because direct Flask access bypasses Apache authentication.
-4. Use Apache as the public-facing reverse proxy and authentication boundary; Flask does not inspect authentication identity.
+4. Use Apache as the public-facing reverse proxy and authentication boundary. Flask app accounts are independent of Apache authentication and are stored in the local account database.
 5. Keep port `6555` restricted by the host firewall to trusted clients and networks; do not expose it to untrusted networks.
 6. Keep MythTV integration local to this server. Add specific MythTV features incrementally as requirements are agreed and documented.
 7. Preserve the existing `/` landing route and `/healthz` health endpoint unless a change is intentionally required and documented.
@@ -18,7 +18,8 @@ This project is a Python web server that will provide a browser-based interface 
 10. Capture Gunicorn access and error logs in `mythtv-web-YYYY-MM-DDT000000.log` files named for the start of each local-day period, rotate at local midnight, and retain no more than 10 period files including the active file.
 11. Keep MythTV service calls server-side in Flask. Configure the local backend with `MYTHTV_BACKEND_URL`; do not expose MythTV service endpoints directly to browsers.
 12. Group recorded programs by title and show every recording in a selected group, consistent with MythFrontend's recordings workflow.
-13. Require explicit confirmation for recording-file deletion and never force-delete recordings by default. Public access is controlled by Apache and direct internal access by the host firewall. Schedule-rule create, edit, and delete actions use those same external access boundaries. Rule deletion still requires explicit confirmation.
+13. Require explicit confirmation for recording-file deletion and never force-delete recordings by default. Public access is controlled by Apache and direct internal access by the host firewall; all application actions also require a Flask account session. Schedule-rule create, edit, and delete actions are available to authenticated users. Rule deletion still requires explicit confirmation.
+14. Require Flask session authentication for application pages and APIs, except `/healthz` and static assets. Support only the `admin` and `user` roles; administrators manage accounts, roles, and passwords. Bootstrap the first admin as `admin` / `mythtv-admin` unless overridden before the first start, and require a password change on first sign-in.
 
 ## Development Guidance
 

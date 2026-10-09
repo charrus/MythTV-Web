@@ -21,7 +21,15 @@
         <button class="nav-link" type="button" data-view="guide">Guide</button>
         <button class="nav-link" type="button" data-view="status">Status</button>
       </nav>
-      <div class="system-state"><span></span> Local library</div>
+      <div class="system-state">
+        <span class="status-dot"></span>
+        <span>{{ current_user.username }}</span>
+        {% if current_user.role == "admin" %}<a href="{{ url_for('auth.users') }}">Users</a>{% endif %}
+        <form method="post" action="{{ url_for('auth.logout') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="account-action" type="submit">Sign out</button>
+        </form>
+      </div>
     </header>
 
     <main class="library-shell" data-view-panel="recordings">
