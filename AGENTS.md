@@ -2,14 +2,14 @@
 
 ## Project Description
 
-This project is a Python web server that provides a browser-based interface to the MythTV services available locally on the server. The application is built with Flask and is intended to sit behind Apache, which provides external access and authentication. Flask also authenticates its own local accounts for application access and role management; it does not consume Apache's authentication identity.
+This project is a Python web server that provides a browser-based interface to the MythTV services available locally on the server. The application is built with Flask and is intended to sit behind Apache as a reverse proxy. Flask authenticates its own local accounts for application access and role management; it does not consume Apache's authentication identity.
 
 ## Requirements
 
 1. Use Python and Flask for the web application, following the existing app-factory structure in `mythtv_web/`.
 2. Keep the project environment local in `.venv/`; declare application dependencies in `requirements.txt` and development tools in `requirements-dev.txt`.
-3. Bind the application server to `0.0.0.0` on port `6555`; the host firewall must restrict access to trusted clients because direct Flask access bypasses Apache authentication.
-4. Use Apache as the public-facing reverse proxy and authentication boundary. Flask app accounts are independent of Apache authentication and are stored in the local account database.
+3. Bind the application server to `0.0.0.0` on port `6555`; the host firewall must restrict direct access to trusted clients and networks.
+4. Use Apache as the public-facing reverse proxy. Flask app accounts provide application authentication independently of Apache and are stored in the local account database.
 5. Keep port `6555` restricted by the host firewall to trusted clients and networks; do not expose it to untrusted networks.
 6. Keep MythTV integration local to this server. Add specific MythTV features incrementally as requirements are agreed and documented.
 7. Preserve the existing `/` landing route and `/healthz` health endpoint unless a change is intentionally required and documented.
