@@ -1,6 +1,12 @@
 # MythTV Web Server
 
-A Flask application intended to provide a web interface to the MythTV services on this host. Apache is expected to handle external access and authentication, then reverse-proxy requests to this application.
+A Flask application intended to provide a web interface to the MythTV services on this host. Apache/Nginx/other is expected to handle external access, then reverse-proxy requests to this application.
+
+It provides program selection, recording setup, and a web player that provides all of the features that MythFrontend provides, including playing a program currently recording, and skipping, and timestretch, all from a browser.
+
+It is mobile browser compatible and Android TV with TVBro.
+
+This started out as a fun project to play with AI and is not meant to replace the embedded browser found in MythTV itself.
 
 ## Setup
 
