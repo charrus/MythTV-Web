@@ -1,11 +1,9 @@
-import fcntl
 import json
 import math
 import os
 import re
 import shutil
 import subprocess
-import time
 from datetime import datetime, timedelta, timezone
 from fractions import Fraction
 from functools import lru_cache
@@ -26,13 +24,12 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .auth import deletion_allowed, init_auth
 from .backend import cuttings, json_object, program_list
+from .recordings import RecordingsCache
 from .transcodes import CapacityError, TokenActiveError, TranscodeRegistry
 
 DEFAULT_BACKEND_URL = "http://127.0.0.1:6544"
 PRIMARY_RECORDING_GROUP = "Seasons"
 ACTIVE_RECORDING_GROUPS = {"Default", PRIMARY_RECORDING_GROUP}
-RECORDINGS_PAGE_SIZE = 5000
-RECORDINGS_CACHE_SECONDS = 120
 RECORDING_RULE_FIELDS = (
     "Title",
     "SubTitle",
@@ -146,16 +143,7 @@ def _active_recording(app: Flask, recorded_id: int) -> dict | None:
 
 
 def _invalidate_recordings_cache(app: Flask) -> None:
-    cache_path = Path(app.config["MYTHTV_RECORDINGS_CACHE_PATH"])
-    lock_path = cache_path.with_suffix(f"{cache_path.suffix}.lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with lock_path.open("a+") as lock_file:
-        fcntl.flock(lock_file, fcntl.LOCK_EX)
-        try:
-            cache_path.unlink(missing_ok=True)
-        finally:
-            fcntl.flock(lock_file, fcntl.LOCK_UN)
+    app.extensions["recordings_cache"].invalidate(app)
 
 
 def _recording_url(app: Flask, recorded_id: int) -> str:
@@ -295,59 +283,12 @@ def _read_frame_offset(
 
 
 def _load_all_recordings(app: Flask) -> list[dict]:
-    cache_path = Path(app.config["MYTHTV_RECORDINGS_CACHE_PATH"])
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = cache_path.with_suffix(f"{cache_path.suffix}.lock")
-
-    with lock_path.open("a+") as lock_file:
-        fcntl.flock(lock_file, fcntl.LOCK_EX)
-        try:
-            try:
-                cached = json.loads(cache_path.read_text())
-                cache_age = time.time() - cached["cached_at"]
-                if cache_age <= RECORDINGS_CACHE_SECONDS:
-                    return cached["programs"]
-            except (OSError, ValueError, KeyError, TypeError):
-                pass
-
-            programs = []
-            start_index = 0
-            total = None
-            while total is None or start_index < total:
-                response = requests.get(
-                    f"{app.config['MYTHTV_BACKEND_URL']}/Dvr/GetRecordedList",
-                    params={
-                        "StartIndex": start_index,
-                        "Count": RECORDINGS_PAGE_SIZE,
-                        "Descending": "true",
-                    },
-                    headers={"Accept": "application/json"},
-                    timeout=app.config["MYTHTV_GROUPS_TIMEOUT"],
-                )
-                response.raise_for_status()
-                payload = program_list(response)
-                page = payload.get("Programs", [])
-                total = payload.get("TotalAvailable", 0)
-                programs.extend(page)
-                count = payload.get("Count", len(page))
-                if count <= 0:
-                    break
-                start_index += count
-
-            temporary_path = cache_path.with_name(
-                f".{cache_path.name}.{os.getpid()}.tmp"
-            )
-            temporary_path.write_text(
-                json.dumps({"cached_at": time.time(), "programs": programs})
-            )
-            os.replace(temporary_path, cache_path)
-            return programs
-        finally:
-            fcntl.flock(lock_file, fcntl.LOCK_UN)
+    return app.extensions["recordings_cache"].load(app)
 
 
 def create_app(config: dict | None = None) -> Flask:
     app = Flask(__name__)
+    app.extensions["recordings_cache"] = RecordingsCache()
     app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
 
     @app.after_request
