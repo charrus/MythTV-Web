@@ -748,6 +748,14 @@ input {
   background: var(--event-surface);
   color: #f0f3f3;
   animation: arrive 220ms ease-out both;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.guide-event-card:not(.has-details):hover,
+.guide-event-card:not(.has-details):focus-within {
+  z-index: 4;
+  transform: scale(1.025);
+  box-shadow: 0 5px 14px rgb(0 0 0 / 32%);
 }
 
 .guide-event-card.has-details {
@@ -1474,11 +1482,21 @@ h1 {
 .program-card {
   min-width: 0;
   animation: arrive 260ms ease-out both;
+  transition: transform 180ms ease, filter 180ms ease;
+  transform-origin: center;
+}
+
+.program-card:hover,
+.program-card:focus-within {
+  position: relative;
+  z-index: 1;
+  transform: translateY(-3px) scale(1.015);
+  filter: drop-shadow(0 8px 12px rgb(0 0 0 / 30%));
 }
 
 @keyframes arrive {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; translate: 0 5px; }
+  to { opacity: 1; translate: 0 0; }
 }
 
 .poster {
