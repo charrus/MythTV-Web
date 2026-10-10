@@ -69,6 +69,7 @@ Run these checks before committing Python changes:
 uv run ruff format --check .
 uv run ruff check .
 uv run pytest
+npm run test:browser
 ```
 
 ## Run

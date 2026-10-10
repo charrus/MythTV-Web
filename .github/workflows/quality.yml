@@ -26,6 +26,21 @@ jobs:
       - name: Run tests
         run: uv run --locked pytest -m "not requires_mythtv"
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install browser dependencies
+        run: npm ci
+
+      - name: Test browser playback lifecycle
+        run: npm run test:browser
+
+      - name: Build browser assets
+        run: npm run build:browser
+
       - name: Run Ruff
         run: uv run --locked ruff check .
 
