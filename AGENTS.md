@@ -29,13 +29,13 @@ This project is a Python web server that provides a browser-based interface to t
 - Follow the current Flask and Python patterns in the repository; keep changes focused on the requested feature.
 - Do not commit credentials, tokens, or other secrets. Keep local environment files and `.venv/` out of Git.
 - Add or update focused tests for behavior changes. Before finishing a feature, run the relevant tests or checks and review the complete diff.
-- Use Black for formatting, Ruff for linting, and pytest for tests.
+- Use Ruff for formatting and linting, and pytest for tests. Run these tools through uv; do not use Black.
 - Update `README.md` when setup, run, deployment, or operational instructions change.
 
 ## Git Workflow
 
 1. Complete one coherent feature or fix at a time.
-2. Before every commit, run `uv run --locked black .`, `uv run --locked ruff check .`, and `uv run --locked pytest`; resolve any failures. For browser changes, also run `npm run test:browser` and `npm run build:browser`.
+2. Before every commit, run `uv run --locked ruff format --check .`, `uv run --locked ruff check .`, and `uv run --locked pytest`; resolve any failures. Use `uv run --locked ruff format .` to fix formatting. For browser changes, also run `npm run test:browser` and `npm run build:browser`.
 3. Review the staged diff before committing.
 4. Commit each completed feature or fix to Git as its own focused commit, using a message that describes the change.
 5. Do not include unrelated user changes in a feature commit.
