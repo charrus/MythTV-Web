@@ -25,6 +25,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from .auth import deletion_allowed, init_auth
 from .backend import cuttings, json_object, program_list
 from .recordings import RecordingsCache
+from .subtitles import SubtitleCache
 from .transcodes import CapacityError, TokenActiveError, TranscodeRegistry
 
 DEFAULT_BACKEND_URL = "http://127.0.0.1:6544"
@@ -289,6 +290,7 @@ def _load_all_recordings(app: Flask) -> list[dict]:
 def create_app(config: dict | None = None) -> Flask:
     app = Flask(__name__)
     app.extensions["recordings_cache"] = RecordingsCache()
+    app.extensions["subtitle_cache"] = SubtitleCache()
     app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
 
     @app.after_request
@@ -307,6 +309,10 @@ def create_app(config: dict | None = None) -> Flask:
     )
     app.config["MYTHTV_TRANSCODE_DIR"] = str(
         Path(__file__).resolve().parents[1] / ".run" / "transcodes"
+    )
+    app.config["MYTHTV_SUBTITLE_CACHE_DIR"] = os.environ.get(
+        "MYTHTV_SUBTITLE_CACHE_DIR",
+        str(Path(__file__).resolve().parents[1] / ".run" / "subtitles"),
     )
     app.config["MYTHTV_MAX_TRANSCODES"] = int(
         os.environ.get("MYTHTV_MAX_TRANSCODES", "2")
@@ -1283,30 +1289,20 @@ def create_app(config: dict | None = None) -> Flask:
         if not ffmpeg:
             return jsonify(error="FFmpeg is required to extract subtitles"), 501
         try:
-            result = subprocess.run(
-                [
-                    ffmpeg,
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
-                    "-i",
-                    _recording_url(app, recorded_id),
-                    "-map",
-                    f"0:{stream_index}",
-                    "-f",
-                    "webvtt",
-                    "pipe:1",
-                ],
-                capture_output=True,
-                timeout=120,
-                check=False,
+            contents = app.extensions["subtitle_cache"].get(
+                app,
+                program,
+                recorded_id,
+                stream_index,
+                ffmpeg,
+                _recording_url(app, recorded_id),
             )
         except (OSError, subprocess.TimeoutExpired) as error:
             app.logger.warning("Subtitle extraction failed: %s", error)
             return jsonify(error="Could not extract recording subtitles"), 502
-        if result.returncode:
-            app.logger.info("Subtitle extraction returned %s", result.returncode)
+        if contents is None:
+            app.logger.info("Subtitle extraction failed")
             return Response(status=404)
-        return Response(result.stdout, content_type="text/vtt; charset=utf-8")
+        return Response(contents, content_type="text/vtt; charset=utf-8")
 
     return app

@@ -53,6 +53,8 @@ Seeking within buffered media stays local; seeking outside the buffer restarts t
 
 Server transcoding uses Linux process identity and pidfds for safe cancellation across workers. Jobs belong to the starting account session and recording. At most two transcodes run concurrently by default; additional requests receive `503` until a slot is free. Set `MYTHTV_MAX_TRANSCODES` to change this limit and `MYTHTV_FFMPEG_THREADS` to change the decoder, encoder, and filter thread budgets (default: two each). Both settings must be positive integers. These limits leave Gunicorn threads available for navigation and account requests.
 
+Successful subtitle extractions for completed recordings are cached under `.run/subtitles/` for up to 24 hours, retaining at most 128 files. The cache key includes the recording's file metadata, source URL, and subtitle stream. Concurrent requests for the same track share an extraction; recordings still in progress are extracted afresh. Set `MYTHTV_SUBTITLE_CACHE_DIR` to select another cache directory.
+
 ### TODO: Revisit FFmpeg.wasm
 
 FFmpeg.wasm is the FFmpeg media toolkit compiled to WebAssembly, a portable format that lets the browser run compiled code without installing a native FFmpeg program on the client. If enabled, MythTV Web can send the recording stream through Flask to the browser, convert it there to fragmented MP4, and feed the result to the video element with MediaSource. That can avoid server-side transcoding and help devices whose browser cannot decode the recording's original codecs.
