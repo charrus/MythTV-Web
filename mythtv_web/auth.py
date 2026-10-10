@@ -161,7 +161,12 @@ def init_auth(app) -> None:
         if g.current_user is None:
             if request.path.startswith("/api/"):
                 return jsonify(error="Authentication required"), 401
-            return redirect(url_for("auth.login", next=request.full_path))
+            return redirect(
+                url_for(
+                    "auth.login",
+                    next=f"{request.script_root}{request.full_path}",
+                )
+            )
         if g.current_user["must_change_password"] and endpoint not in {
             "auth.change_password",
             "auth.logout",

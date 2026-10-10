@@ -2,6 +2,7 @@ import re
 import sqlite3
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from urllib.parse import parse_qs, urlsplit
 
 from mythtv_web import create_app
 
@@ -103,6 +104,36 @@ def test_users_page_has_back_to_library_link(tmp_path):
     assert response.status_code == 200
     assert b'class="back-button users-back-link" href="/"' in response.data
     assert b"Back to library" in response.data
+
+
+def test_login_round_trip_keeps_forwarded_prefix(tmp_path):
+    app = make_app(tmp_path)
+    client = app.test_client()
+    prefix_headers = {"X-Forwarded-Prefix": "/mythtv-web"}
+    with sqlite3.connect(app.config["AUTH_DATABASE_PATH"]) as connection:
+        connection.execute("UPDATE users SET must_change_password = 0")
+
+    response = client.get("/", headers=prefix_headers)
+    login_location = urlsplit(response.location)
+    assert login_location.path == "/mythtv-web/login"
+    next_url = parse_qs(login_location.query)["next"][0]
+    assert next_url.startswith("/mythtv-web/")
+
+    login_page = client.get(f"/login?{login_location.query}", headers=prefix_headers)
+    assert b'action="/mythtv-web/login"' in login_page.data
+    response = client.post(
+        "/login",
+        headers=prefix_headers,
+        data={
+            "csrf_token": csrf_token(login_page),
+            "username": "admin",
+            "password": INITIAL_PASSWORD,
+            "next": next_url,
+        },
+    )
+
+    assert response.status_code == 302
+    assert response.location.startswith("/mythtv-web/")
 
 
 def test_admin_manages_accounts_and_regular_users_cannot_manage_users(tmp_path):
