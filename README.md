@@ -33,6 +33,8 @@ The Flask app requires sign-in for the library and API; `/healthz` remains publi
 
 `MYTHTV_AUTH_DATABASE` selects another account database path. Authentication cookies are persistent for 365 days by default and refresh while the user is active; set `MYTHTV_SESSION_LIFETIME_DAYS` to choose another lifetime. Flask creates and persists a random session-signing key under `.run/` by default; set `MYTHTV_SECRET_KEY` to supply a stable key explicitly, and keep it private. Set `MYTHTV_SESSION_COOKIE_SECURE=1` when all browser access uses HTTPS. For deployments using the known initial password, change it immediately on first sign-in; preferably set a unique `MYTHTV_INITIAL_ADMIN_PASSWORD` before the first start.
 
+Existing account databases are migrated automatically on startup. The session-security upgrade requires existing users to sign in again. Password changes revoke other sessions while keeping the changing user's current session; administrator password resets revoke all sessions for the affected account. Session cookies use `SameSite=Strict` by default.
+
 ## Browser playback
 
 Recordings are streamed through Flask from MythTV's `Content/GetRecording` service, preserving byte-range requests for seeking. The player uses MythTV commercial-break markers for smart/advert skipping and stores its resume position through `Dvr/SetLastPlayPos`. Recordings with browser-supported codecs play directly; this path does not require system FFmpeg.
