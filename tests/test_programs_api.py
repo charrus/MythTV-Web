@@ -1429,6 +1429,55 @@ def test_artwork_proxy_forwards_only_mythtv_image_parameters(monkeypatch):
     assert captured["params"] == {"StorageGroup": "Coverart", "FileName": "/cover.jpg"}
 
 
+@pytest.mark.parametrize("endpoint", ["position", "bookmark", "transcode/cancel"])
+@pytest.mark.parametrize(
+    "payload", [[], "text", 1, True, {"token": 1}, {"position": 10**400}]
+)
+def test_playback_mutations_reject_invalid_json(monkeypatch, endpoint, payload):
+    monkeypatch.setattr("mythtv_web._active_recording", lambda *_: {"Recording": {}})
+    response = (
+        create_app().test_client().post(f"/api/playback/42/{endpoint}", json=payload)
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "result", [{}, [], {"bool": False}, {"bool": "true"}, {"bool": 1}]
+)
+def test_schedule_update_requires_explicit_backend_success(monkeypatch, result):
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.payload
+
+    monkeypatch.setattr(
+        "mythtv_web.requests.get", lambda *_a, **_k: Response({"RecRule": {"Id": 42}})
+    )
+    monkeypatch.setattr("mythtv_web.requests.post", lambda *_a, **_k: Response(result))
+    response = create_app().test_client().post("/api/schedules/42", json={"rule": {}})
+    assert response.status_code == 502
+
+
+@pytest.mark.parametrize(
+    "payload", [[], {"ProgramList": []}, {"ProgramList": {"Programs": [None]}}]
+)
+def test_programs_reject_malformed_backend_lists(monkeypatch, payload):
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return payload
+
+    monkeypatch.setattr("mythtv_web.requests.get", lambda *_a, **_k: Response())
+    assert create_app().test_client().get("/api/programs").status_code == 502
+
+
 def test_artwork_proxy_rejects_arbitrary_upstream_urls(monkeypatch):
     def unexpected_get(*args, **kwargs):
         raise AssertionError("backend should not be called for invalid artwork URLs")
