@@ -7,7 +7,7 @@ This project is a Python web server that provides a browser-based interface to t
 ## Requirements
 
 1. Use Python and Flask for the web application, following the existing app-factory structure in `mythtv_web/`.
-2. Keep the project environment local in `.venv/` and manage it with uv. Declare application dependencies in `pyproject.toml`, development tools in its `dev` dependency group, and commit the resolved `uv.lock`. Use `uv sync --locked --dev` for development and CI.
+2. Keep the project environment local in `.venv/` and manage it with uv. Declare application dependencies in `pyproject.toml`, development tools in its `dev` dependency group, and commit the resolved `uv.lock`. Use `uv sync --dev` for development; keep `--locked` in GitHub CI to validate the committed lockfile.
 3. Bind the application server to `0.0.0.0` on port `6555`; the host firewall must restrict direct access to trusted clients and networks.
 4. Use Apache as the public-facing reverse proxy. Flask app accounts provide application authentication independently of Apache and are stored in the local account database.
 5. Keep port `6555` restricted by the host firewall to trusted clients and networks; do not expose it to untrusted networks.
@@ -37,7 +37,7 @@ This project is a Python web server that provides a browser-based interface to t
 ## Git Workflow
 
 1. Complete one coherent feature or fix at a time.
-2. Before every commit, run `uv run --locked ruff format --check .`, `uv run --locked ruff check .`, and `uv run --locked pytest`; resolve any failures. Use `uv run --locked ruff format .` to fix formatting. For browser changes, also run `npm run test:browser` and `npm run build:browser`.
+2. Before every commit, run `uv run ruff format --check .`, `uv run ruff check .`, and `uv run pytest`; resolve any failures. Use `uv run ruff format .` to fix formatting. For browser changes, also run `npm run test:browser` and `npm run build:browser`.
 3. Review the staged diff before committing.
 4. Commit each completed feature or fix to Git as its own focused commit, using a message that describes the change.
 5. Do not include unrelated user changes in a feature commit.
