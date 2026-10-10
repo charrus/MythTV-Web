@@ -15,6 +15,7 @@ from mythtv_web import create_app
 @pytest.fixture(autouse=True)
 def authenticated_api_clients(monkeypatch, tmp_path):
     monkeypatch.setenv("MYTHTV_AUTH_DATABASE", str(tmp_path / "users.sqlite"))
+    monkeypatch.setenv("MYTHTV_SUBTITLE_CACHE_DIR", str(tmp_path / "subtitles"))
     original_test_client = Flask.test_client
 
     def test_client(app, *args, **kwargs):
