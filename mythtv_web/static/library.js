@@ -31,6 +31,7 @@ const jumpForwardButton = document.querySelector("#jump-forward");
 const setBookmarkButton = document.querySelector("#set-bookmark");
 let activeRecording = null;
 let playbackInfo = null;
+let playerReturnFocus = null;
 let pendingDelete = null;
 let deleteInProgress = false;
 let commercialBreaks = [];
@@ -392,7 +393,9 @@ async function openPlayer(program, startMode = "resume") {
   document.querySelector("#subtitle-track").replaceChildren(new Option("Off", ""));
   document.querySelector("#player-details").open = false;
   playerStatus.textContent = "Loading MythTV playback details…";
+  playerReturnFocus = document.activeElement;
   playerDialog.showModal();
+  playerVideo.focus({ preventScroll: true });
 
   try {
     const response = await fetch(appPath(`/api/playback/${recordedId}`));
@@ -501,6 +504,9 @@ async function closePlayer() {
   transcodeBase = 0;
   requestedStartPosition = 0;
   if (playerDialog.open) playerDialog.close();
+  const returnFocus = playerReturnFocus;
+  playerReturnFocus = null;
+  if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
 }
 
 function episodeLabel(program) {
@@ -1074,7 +1080,6 @@ function updateFullscreenControls() {
   playerShell.classList.toggle("controls-visible", fullscreen);
   window.clearTimeout(controlsHideTimer);
   if (fullscreen) {
-    if (playerOverlay.contains(document.activeElement)) document.activeElement.blur();
     revealFullscreenControls();
   }
 }
@@ -1084,17 +1089,22 @@ function revealFullscreenControls() {
   playerShell.classList.add("controls-visible");
   window.clearTimeout(controlsHideTimer);
   controlsHideTimer = window.setTimeout(() => {
+    if (playerOverlay.contains(document.activeElement)) return;
     playerShell.classList.remove("controls-visible");
   }, 2500);
 }
 
 document.querySelector("#player-fullscreen").addEventListener("click", () => {
-  playerShell.requestFullscreen?.()
+  if (!playerShell.requestFullscreen) {
+    playerStatus.textContent = "Fullscreen is not supported by this browser.";
+    return;
+  }
+  playerShell.requestFullscreen()
     .then(updateFullscreenControls)
     .catch((error) => { playerStatus.textContent = `Could not enter fullscreen: ${error.message}`; });
 });
 document.querySelector("#player-exit-fullscreen").addEventListener("click", () => {
-  if (document.fullscreenElement === playerShell) {
+  if (document.fullscreenElement === playerShell && document.exitFullscreen) {
     document.exitFullscreen().then(updateFullscreenControls);
   }
 });
@@ -1104,17 +1114,66 @@ playerShell.addEventListener("pointerdown", revealFullscreenControls);
 playerShell.addEventListener("touchstart", revealFullscreenControls, { passive: true });
 playerShell.addEventListener("keydown", revealFullscreenControls);
 playerShell.addEventListener("focusin", revealFullscreenControls);
+playerOverlay.addEventListener("focusout", (event) => {
+  if (!playerOverlay.contains(event.relatedTarget)) revealFullscreenControls();
+});
+
+function focusPlayerControlInDirection(current, direction) {
+  const selector = "button:not(:disabled):not([hidden]), input:not(:disabled), select:not(:disabled), summary, video[tabindex]";
+  const currentRect = current.getBoundingClientRect();
+  const currentX = currentRect.left + currentRect.width / 2;
+  const currentY = currentRect.top + currentRect.height / 2;
+  const candidates = [...playerDialog.querySelectorAll(selector)]
+    .filter((element) => element !== current && element.getClientRects().length)
+    .map((element) => {
+      const rect = element.getBoundingClientRect();
+      const deltaX = rect.left + rect.width / 2 - currentX;
+      const deltaY = rect.top + rect.height / 2 - currentY;
+      const primary = direction === "ArrowLeft" ? -deltaX
+        : direction === "ArrowRight" ? deltaX
+          : direction === "ArrowUp" ? -deltaY : deltaY;
+      const secondary = direction === "ArrowLeft" || direction === "ArrowRight"
+        ? Math.abs(deltaY)
+        : Math.abs(deltaX);
+      return { element, primary, secondary };
+    })
+    .filter(({ primary }) => primary > 0)
+    .sort((left, right) =>
+      left.primary + left.secondary * 2 - (right.primary + right.secondary * 2),
+    );
+  candidates[0]?.element.focus({ preventScroll: true });
+}
+
 document.addEventListener("keydown", (event) => {
-  if (playerDialog.open && !["INPUT", "SELECT", "BUTTON"].includes(document.activeElement.tagName)) {
-    if (event.key === "ArrowLeft") {
+  if (playerDialog.open) {
+    if (["MediaPlayPause", "MediaPlay"].includes(event.key)) {
+      event.preventDefault();
+      if (playerVideo.paused) playerVideo.play().catch(() => {});
+      else playerVideo.pause();
+    } else if (event.key === "MediaPause") {
+      event.preventDefault();
+      playerVideo.pause();
+    } else if (document.activeElement === playerVideo && event.key === "ArrowLeft") {
       event.preventDefault();
       seekTo(playbackPosition() - 10);
-    } else if (event.key === "ArrowRight") {
+    } else if (document.activeElement === playerVideo && event.key === "ArrowRight") {
       event.preventDefault();
       seekTo(playbackPosition() + 30);
-    } else if (event.key === " ") {
+    } else if (document.activeElement === playerVideo && ["ArrowUp", "ArrowDown"].includes(event.key)) {
+      event.preventDefault();
+      (event.key === "ArrowDown"
+        ? playbackSeek
+        : document.querySelector("#player-close"))
+        .focus({ preventScroll: true });
+    } else if (document.activeElement === playerVideo && [" ", "Enter"].includes(event.key)) {
       event.preventDefault();
       document.querySelector("#player-toggle").click();
+    } else if (
+      ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+      && event.target instanceof HTMLButtonElement
+    ) {
+      focusPlayerControlInDirection(event.target, event.key);
+      if (document.activeElement !== event.target) event.preventDefault();
     }
   } else if (event.key === "/" && document.activeElement !== searchInput) {
     event.preventDefault();
