@@ -90,7 +90,7 @@ npm run build:browser
 For local development:
 
 ```sh
-uv run mythtv-web
+uv run --locked mythtv-web
 ```
 
 For the Apache-facing server process:
@@ -100,6 +100,8 @@ uv run gunicorn --workers 2 --worker-class gthread --threads 8 --timeout 120 --b
 ```
 
 The landing page is at `/`; `/healthz` returns a small JSON health response. Stop the process with Ctrl+C when running it in the foreground.
+
+In VS Code, use **Terminal > Run Task > uv: run app** to run the same command. For debugging, select **Python: MythTV-Web** in Run and Debug and press **F5**. The launch configuration runs `uv sync --locked --dev` first, then uses the workspace's `.venv/bin/python` and serves `http://127.0.0.1:6555/`. Build browser assets using the setup commands above before the first run. Stop any server already using port 6555 before starting another instance.
 
 ## Background service
 
