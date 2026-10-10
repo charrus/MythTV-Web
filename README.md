@@ -10,17 +10,6 @@ This started out as a fun project to play with AI and is not meant to replace th
 
 ## Setup
 
-From the project root, create and activate the local virtual environment, then install dependencies:
-
-```sh
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements-dev.txt
-```
-
-`requirements.txt` contains runtime dependencies; `requirements-dev.txt` adds pytest, Ruff, and Black.
-
 Node.js 20 or newer is needed to bundle browser assets after checkout or dependency updates:
 
 ```sh
@@ -73,9 +62,9 @@ Before enabling the feature, make its selection capability-based, confirm the bu
 Run these checks before committing Python changes:
 
 ```sh
-black .
-ruff check .
-pytest
+uv run ruff format --check .
+uv run ruff check .
+uv run pytest
 ```
 
 ## Run
@@ -89,7 +78,7 @@ uv run mythtv-web
 For the Apache-facing server process:
 
 ```sh
-gunicorn --workers 2 --worker-class gthread --threads 8 --timeout 120 --bind 0.0.0.0:6555 'mythtv_web:create_app()'
+uv run gunicorn --workers 2 --worker-class gthread --threads 8 --timeout 120 --bind 0.0.0.0:6555 'mythtv_web:create_app()'
 ```
 
 The landing page is at `/`; `/healthz` returns a small JSON health response. Stop the process with Ctrl+C when running it in the foreground.
