@@ -10,6 +10,14 @@ This started out as a fun project to play with AI and is not meant to replace th
 
 ## Setup
 
+Install uv, then install the locked Python dependencies into the project's `.venv/`:
+
+```sh
+uv sync --locked --dev
+```
+
+Application dependencies and development tools are declared in `pyproject.toml`; `uv.lock` pins the versions used locally and in CI. For a production-only environment, use `uv sync --locked --no-dev` instead.
+
 Node.js 20 or newer is needed to bundle browser assets after checkout or dependency updates:
 
 ```sh
@@ -67,13 +75,14 @@ Before enabling the feature, make its selection capability-based, confirm the bu
 
 ## Quality checks
 
-Run these checks before committing Python changes:
+Run these checks before committing changes:
 
 ```sh
-uv run ruff format --check .
-uv run ruff check .
-uv run pytest
+uv run --locked black --check .
+uv run --locked ruff check .
+uv run --locked pytest
 npm run test:browser
+npm run build:browser
 ```
 
 ## Run
