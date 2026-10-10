@@ -15,12 +15,14 @@ python -m pip install -r requirements-dev.txt
 
 `requirements.txt` contains runtime dependencies; `requirements-dev.txt` adds pytest, Ruff, and Black.
 
-Browser-side FFmpeg requires Node.js 20 or newer. Build its FFmpeg.wasm assets after checkout or dependency updates:
+Node.js 20 or newer is needed to bundle browser assets after checkout or dependency updates:
 
 ```sh
 npm ci
 npm run build:browser
 ```
+
+The build currently packages FFmpeg.wasm assets, but browser-side transcoding is disabled; the player does not load or use them. See the TODO under Browser playback.
 
 ## Recordings library
 
@@ -38,9 +40,27 @@ The Flask app requires sign-in for the library and API; `/healthz` remains publi
 
 ## Browser playback
 
-Recordings play through MythTV's `Content/GetRecording` service proxied by Flask, preserving byte-range requests for seeking. The player uses MythTV commercial-break markers for smart/advert skipping and stores its resume position through `Dvr/SetLastPlayPos`. Browser-supported recordings stream directly. For codecs the browser cannot decode (including DVB-T MPEG-2/MP2), FFmpeg.wasm reads the recording through a bounded shared-memory pipe and streams fragmented MP4 into MediaSource; it does not stage the full recording in memory. Compatible High Profile H.264 video is copied without re-encoding, while audio is converted to AAC. Other unsupported video formats are converted to H.264/AAC. Seeking within buffered media stays local. Seeking outside the buffered window restarts at that position through the server FFmpeg fallback. If browser isolation, WASM conversion, or MSE playback is unavailable, the player also falls back to server FFmpeg. Install `ffmpeg` on the server for fallback and subtitle extraction, and `ffprobe` for codec probing. DVB bitmap subtitle tracks may not be convertible to browser text subtitles. Commercial skipping is available only when MythTV has commercial-break markers for that recording.
+Recordings are streamed through Flask from MythTV's `Content/GetRecording` service, preserving byte-range requests for seeking. The player uses MythTV commercial-break markers for smart/advert skipping and stores its resume position through `Dvr/SetLastPlayPos`. Recordings with browser-supported codecs play directly; this path does not require system FFmpeg.
 
-The WASM pipe reads shared input in 64 KB batches and flushes output in 8 KB batches through a bounded 1 MB input ring and 4 MB output ring; MediaSource receives up to 256 KB per append and backpressure controls conversion. It requires a cross-origin-isolated page, so Flask sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`; a reverse proxy must preserve these headers. The FFmpeg core is about 32 MB and is loaded only for recordings needing conversion. The server FFmpeg endpoint remains available as a fallback.
+System `ffprobe` is optional. It is the media-inspection companion to FFmpeg: MythTV Web uses it to identify stream codecs, frame rate, and subtitle tracks before playback. If it is missing or cannot inspect a recording, playback still attempts the browser's native decoder, but codec-based fallback selection, frame-rate metadata, and subtitle discovery may be unavailable.
+
+System `ffmpeg` is also optional for basic playback, but is required for the server-side compatibility transcode and subtitle extraction. FFmpeg is a media toolkit that decodes, encodes, and remuxes audio/video; here, it converts an unsupported recording to fragmented H.264/AAC MP4 so the browser can play it. Without `ffmpeg`, browser-decodable recordings continue to work, but unsupported recordings cannot use this fallback. `ffmpeg` also extracts supported text subtitles as WebVTT; DVB bitmap subtitle tracks may not be convertible. These are system executables, not Python packages. Install the OS package on the MythTV Web host and ensure both `ffmpeg` and `ffprobe` are on Gunicorn's `PATH`. On Debian or Ubuntu, for example:
+
+```sh
+sudo apt install ffmpeg
+```
+
+Seeking within buffered media stays local; seeking outside the buffer restarts the server transcode at the requested position. Commercial skipping is available only when MythTV has commercial-break markers for the recording.
+
+### TODO: Revisit FFmpeg.wasm
+
+FFmpeg.wasm is the FFmpeg media toolkit compiled to WebAssembly, a portable format that lets the browser run compiled code without installing a native FFmpeg program on the client. If enabled, MythTV Web can send the recording stream through Flask to the browser, convert it there to fragmented MP4, and feed the result to the video element with MediaSource. That can avoid server-side transcoding and help devices whose browser cannot decode the recording's original codecs.
+
+The repository contains an experimental implementation, but it is currently disabled by `BROWSER_CONVERSION_ENABLED = false`; normal playback does not load or use the WASM code or core. The experiment uses a 1 MiB input ring and 4 MiB output ring backed by `SharedArrayBuffer`, and appends output to MediaSource in chunks so it does not buffer the entire recording in memory. It can copy compatible High Profile H.264 video; other video is encoded as H.264, and audio is encoded as AAC. If WASM conversion fails, the current code falls back to server-side FFmpeg, so enabling it would not remove the server FFmpeg requirement for that fallback.
+
+The tradeoffs are significant: the browser must download the large WASM core when conversion starts, and transcoding can consume substantial CPU, memory, battery, and thermal capacity. Performance and codec support can vary widely on mobile devices and Android TV hardware. The shared-memory path also requires a cross-origin-isolated page; Flask already sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, and any reverse proxy must preserve them.
+
+Before enabling the feature, make its selection capability-based, confirm the build artifacts are deployed, test conversion and seeking on target desktop/mobile/TV browsers, measure resource use on lower-powered devices, and verify cancellation and error fallback. Keep the server fallback or provide a clear playback error for devices that cannot run the WASM path.
 
 ## Quality checks
 
