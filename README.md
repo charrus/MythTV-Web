@@ -130,3 +130,44 @@ sudo systemctl reload apache2
 ```
 
 An unauthenticated browser request should redirect to the Flask login page; unauthenticated API requests return `401`. After sign-in, the homepage and its `/mythtv-web/static/` assets should load. Use HTTPS whenever credentials cross a network.
+
+## Nginx reverse proxy
+
+Nginx can serve the same `/mythtv-web/` URL prefix. Add a port 80 redirect and the following locations to the site's HTTPS `server` block, replacing the hostname and certificate paths with your own:
+
+```nginx
+server {
+	listen 80;
+	server_name mythtv.example.com;
+	return 301 https://$host$request_uri;
+}
+
+server {
+	listen 443 ssl;
+	server_name mythtv.example.com;
+	ssl_certificate /etc/letsencrypt/live/mythtv.example.com/fullchain.pem;
+	ssl_certificate_key /etc/letsencrypt/live/mythtv.example.com/privkey.pem;
+
+	location = /mythtv-web {
+		return 301 /mythtv-web/;
+	}
+
+	location /mythtv-web/ {
+		proxy_pass http://127.0.0.1:6555/;
+		proxy_http_version 1.1;
+		proxy_set_header Host $host;
+		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto $scheme;
+		proxy_set_header X-Forwarded-Prefix /mythtv-web;
+		proxy_buffering off;
+		proxy_read_timeout 120s;
+	}
+}
+```
+
+The trailing slash on `proxy_pass` removes `/mythtv-web/` before forwarding the request; `X-Forwarded-Prefix` lets Flask generate URLs with that prefix again. Nginx passes Flask's response headers through by default, including the cross-origin isolation headers used by the browser playback code. Flask authentication remains enabled, and the host firewall must still restrict direct access to port 6555. Validate and reload Nginx after installing the configuration:
+
+```sh
+sudo nginx -t
+sudo systemctl reload nginx
+```
