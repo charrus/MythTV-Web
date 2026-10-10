@@ -8,22 +8,19 @@ It is mobile browser compatible and Android TV with TVBro.
 
 This started out as a fun project to play with AI and is not meant to replace the embedded browser found in MythTV itself.
 
-## Setup
+## Quick start
 
-Install uv, then install the locked Python dependencies into the project's `.venv/`:
-
-```sh
-uv sync --dev
-```
-
-Application dependencies and development tools are declared in `pyproject.toml`; `uv.lock` pins the versions used locally and in CI. For a production-only environment, use `uv sync --no-dev` instead.
-
-Node.js 20 or newer is needed to bundle browser assets after checkout or dependency updates:
+Install uv and Node.js 20 or newer, then run these commands from the project directory:
 
 ```sh
 npm ci
 npm run build:browser
+uv run mythtv-web
 ```
+
+Open `http://127.0.0.1:6555/` in your browser. On first startup, sign in as `admin` with password `mythtv-admin`, then change the password when prompted. Stop the server with Ctrl+C.
+
+`uv run` creates the project's `.venv/` and installs Python dependencies automatically. Application dependencies and development tools are declared in `pyproject.toml`; `uv.lock` records the resolved versions. Rebuild browser assets after checkout or browser dependency updates. See [Run](#run) and [Background service](#background-service) for other ways to start the server.
 
 The build currently packages FFmpeg.wasm assets, but browser-side transcoding is disabled; the player does not load or use them. See the TODO under Browser playback.
 
@@ -101,7 +98,7 @@ uv run gunicorn --workers 2 --worker-class gthread --threads 8 --timeout 120 --b
 
 The landing page is at `/`; `/healthz` returns a small JSON health response. Stop the process with Ctrl+C when running it in the foreground.
 
-In VS Code, use **Terminal > Run Task > uv: run app** to run the same command. For debugging, select **Python: MythTV-Web** in Run and Debug and press **F5**. The launch configuration runs `uv sync --dev` first, then uses the workspace's `.venv/bin/python` and serves `http://127.0.0.1:6555/`. Build browser assets using the setup commands above before the first run. Stop any server already using port 6555 before starting another instance.
+In VS Code, use **Terminal > Run Task > uv: run app** to run the same command. For debugging, select **Python: MythTV-Web** in Run and Debug and press **F5**. The launch configuration syncs dependencies first, then uses the workspace's `.venv/bin/python` and serves `http://127.0.0.1:6555/`. Build browser assets using the quick-start commands above before the first run. Stop any server already using port 6555 before starting another instance.
 
 ## Background service
 
