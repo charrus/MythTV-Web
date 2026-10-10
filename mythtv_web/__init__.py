@@ -24,7 +24,7 @@ from flask import (
 )
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from .auth import init_auth
+from .auth import deletion_allowed, init_auth
 
 DEFAULT_BACKEND_URL = "http://127.0.0.1:6544"
 PRIMARY_RECORDING_GROUP = "Seasons"
@@ -688,6 +688,7 @@ def create_app(config: dict | None = None) -> Flask:
         )
 
     @app.post("/api/schedules/<int:record_id>/delete")
+    @deletion_allowed
     def delete_schedule(record_id):
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict) or payload.get("confirm") is not True:
@@ -802,6 +803,7 @@ def create_app(config: dict | None = None) -> Flask:
         return jsonify(title=title, programs=matches, total=len(matches))
 
     @app.delete("/api/recordings/<int:recorded_id>")
+    @deletion_allowed
     def delete_recording(recorded_id):
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict) or payload.get("confirmed") is not True:

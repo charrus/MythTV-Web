@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='library.css') }}">
     <script type="module" src="{{ url_for('static', filename='build/library.js') }}"></script>
   </head>
-  <body>
+  <body data-user-role="{{ current_user.role }}">
     <header class="topbar">
       <a class="brand" href="{{ request.script_root or '' }}/" aria-label="MythTV home">
         <img class="brand-logo" src="{{ url_for('static', filename='mythtv.png') }}" alt="">

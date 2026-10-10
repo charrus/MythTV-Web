@@ -38,7 +38,7 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <label>Username<input name="username" autocomplete="off" maxlength="64" required></label>
           <label>Temporary password<input name="password" type="password" autocomplete="new-password" minlength="12" required></label>
-          <label>Role<select name="role"><option value="user">User</option><option value="admin">Admin</option></select></label>
+          <label>Role<select name="role"><option value="user">User</option><option value="guest">Guest</option><option value="admin">Admin</option></select></label>
           <button class="auth-submit" type="submit">Add account</button>
         </form>
         <p class="auth-description">New accounts must change their temporary password at first sign-in.</p>
@@ -55,6 +55,7 @@
               <label class="visually-hidden" for="role-{{ user.id }}">Role for {{ user.username }}</label>
               <select id="role-{{ user.id }}" name="role">
                 <option value="user"{% if user.role == "user" %} selected{% endif %}>User</option>
+                <option value="guest"{% if user.role == "guest" %} selected{% endif %}>Guest</option>
                 <option value="admin"{% if user.role == "admin" %} selected{% endif %}>Admin</option>
               </select>
               <button class="account-action" type="submit">Update role</button>

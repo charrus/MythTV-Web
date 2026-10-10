@@ -9,6 +9,7 @@ let loading = false;
 
 const grid = document.querySelector("#program-grid");
 const appRoot = document.querySelector('meta[name="app-root"]')?.content.replace(/\/$/, "") || "";
+const CAN_DELETE = document.body.dataset.userRole !== "guest";
 const searchInput = document.querySelector("#search");
 const emptyState = document.querySelector("#empty-state");
 const syncNote = document.querySelector("#sync-note");
@@ -738,7 +739,7 @@ function makeProgramCard(program, index) {
       () => openPlayer(program, "bookmark"),
     ),
   ];
-  if (deleteDialog) {
+  if (deleteDialog && CAN_DELETE) {
     recordingActions.push(makeRecordingAction(
       "Delete recording",
       '<path d="M4 7h16M10 11v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3" />',
@@ -1574,7 +1575,7 @@ async function openRecordingEditor({ program, channelId, recordId = 0, statusEle
   document.querySelector("#recording-dialog-title").textContent = recordId ? "Edit recording rule" : "Set up recording";
   document.querySelector("#recording-dialog-subtitle").textContent = [program.Title, program.SubTitle].filter(Boolean).join(" · ");
   document.querySelector("#recording-dialog-save").disabled = true;
-  recordingRuleDeleteButton.hidden = !recordId;
+  recordingRuleDeleteButton.hidden = !CAN_DELETE || !recordId;
   recordingRuleDeleteButton.disabled = true;
   recordingRuleFields.replaceChildren();
   recordingDialog.showModal();
@@ -1587,7 +1588,7 @@ async function openRecordingEditor({ program, channelId, recordId = 0, statusEle
     const resolvedRecordId = recordId || Number(rule.Id || 0);
     if (!resolvedRecordId) rule.Type = "Record One";
     document.querySelector("#recording-dialog-title").textContent = resolvedRecordId ? "Edit recording rule" : "Set up recording";
-    recordingRuleDeleteButton.hidden = !resolvedRecordId;
+    recordingRuleDeleteButton.hidden = !CAN_DELETE || !resolvedRecordId;
     editingSchedule = { recordId: resolvedRecordId, channelId, startTime: program.StartTime, statusElement, program };
     renderRecordingRuleFields(rule, result.choices);
     recordingDialogStatus.textContent = "Choose how MythTV should handle this program.";

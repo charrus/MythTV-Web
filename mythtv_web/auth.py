@@ -27,6 +27,13 @@ from werkzeug.security import check_password_hash, generate_password_hash
 auth = Blueprint("auth", __name__)
 USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]{1,64}$")
 MIN_PASSWORD_LENGTH = 12
+USER_TABLE_SQL = """CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('admin', 'user', 'guest')),
+    must_change_password INTEGER NOT NULL DEFAULT 0
+)"""
 
 
 @contextmanager
@@ -85,13 +92,19 @@ def _initialize_database(app) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(database_path, timeout=5)) as connection, connection:
         connection.execute("BEGIN IMMEDIATE")
-        connection.execute("""CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY,
-                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-                password_hash TEXT NOT NULL,
-                role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
-                must_change_password INTEGER NOT NULL DEFAULT 0
-            )""")
+        connection.execute(USER_TABLE_SQL)
+        schema = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'"
+        ).fetchone()[0]
+        if "'guest'" not in schema.lower():
+            connection.execute("ALTER TABLE users RENAME TO users_before_guest_role")
+            connection.execute(USER_TABLE_SQL)
+            connection.execute(
+                "INSERT INTO users (id, username, password_hash, role, must_change_password) "
+                "SELECT id, username, password_hash, role, must_change_password "
+                "FROM users_before_guest_role"
+            )
+            connection.execute("DROP TABLE users_before_guest_role")
         has_users = connection.execute("SELECT 1 FROM users LIMIT 1").fetchone()
         if has_users is None:
             username = app.config["INITIAL_ADMIN_USERNAME"].strip()
@@ -197,6 +210,16 @@ def admin_required(view):
     return wrapped
 
 
+def deletion_allowed(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if g.current_user["role"] == "guest":
+            return jsonify(error="Guest accounts cannot delete items"), 403
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
 @auth.route("/login", methods=["GET", "POST"])
 def login():
     next_url = request.values.get("next")
@@ -287,7 +310,7 @@ def add_user():
         flash("Use 1-64 letters, numbers, periods, underscores, or hyphens.", "error")
     elif not _valid_password(password):
         flash(f"Password must be at least {MIN_PASSWORD_LENGTH} characters.", "error")
-    elif role not in {"admin", "user"}:
+    elif role not in {"admin", "user", "guest"}:
         flash("Choose a valid role.", "error")
     else:
         try:
@@ -308,7 +331,7 @@ def add_user():
 @admin_required
 def update_role(user_id: int):
     role = request.form.get("role", "")
-    if role not in {"admin", "user"}:
+    if role not in {"admin", "user", "guest"}:
         abort(400, "Invalid role")
     with _connect() as connection:
         connection.execute("BEGIN IMMEDIATE")

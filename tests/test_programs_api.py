@@ -512,6 +512,29 @@ def test_schedule_delete_removes_confirmed_rule_without_app_identity(monkeypatch
     assert captured["json"] == {"RecordId": 1135}
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "payload"),
+    [
+        ("post", "/api/schedules/1135/delete", {"confirm": True}),
+        ("delete", "/api/recordings/39615", {"confirmed": True}),
+    ],
+)
+def test_guest_cannot_delete_recordings_or_rules(monkeypatch, method, path, payload):
+    def unexpected_post(*args, **kwargs):
+        raise AssertionError("guest deletion must not reach MythTV")
+
+    monkeypatch.setattr("mythtv_web.requests.post", unexpected_post)
+    app = create_app()
+    client = app.test_client()
+    with sqlite3.connect(app.config["AUTH_DATABASE_PATH"]) as connection:
+        connection.execute("UPDATE users SET role = 'guest' WHERE id = 1")
+
+    response = getattr(client, method)(path, json=payload)
+
+    assert response.status_code == 403
+    assert response.json == {"error": "Guest accounts cannot delete items"}
+
+
 def test_recording_delete_requires_explicit_confirmation_without_identity(monkeypatch):
     def unexpected_post(*args, **kwargs):
         raise AssertionError("unconfirmed recording deletion must not reach MythTV")

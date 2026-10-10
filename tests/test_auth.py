@@ -164,6 +164,76 @@ def test_admin_manages_accounts_and_regular_users_cannot_manage_users(tmp_path):
         )
 
 
+def test_existing_user_database_migrates_to_guest_role(tmp_path):
+    database_path = tmp_path / "legacy-users.sqlite"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, "
+            "password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('admin', 'user')), "
+            "must_change_password INTEGER NOT NULL DEFAULT 0)"
+        )
+        connection.execute(
+            "INSERT INTO users (id, username, password_hash, role) VALUES (1, 'admin', 'hash', 'admin')"
+        )
+        connection.execute(
+            "INSERT INTO users (id, username, password_hash, role) VALUES (2, 'viewer', 'hash', 'user')"
+        )
+
+    app = create_app(
+        {
+            "AUTH_DATABASE_PATH": str(database_path),
+            "SECRET_KEY": "test-only-secret-key",
+            "INITIAL_ADMIN_PASSWORD": INITIAL_PASSWORD,
+        }
+    )
+
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("UPDATE users SET role = 'guest' WHERE username = 'viewer'")
+        rows = connection.execute(
+            "SELECT id, username, role FROM users ORDER BY id"
+        ).fetchall()
+
+    assert rows == [(1, "admin", "admin"), (2, "viewer", "guest")]
+    assert app.test_client().get("/").status_code == 302
+
+
+def test_guest_can_be_created_and_cannot_manage_users(tmp_path):
+    app = make_app(tmp_path)
+    admin = app.test_client()
+    login(admin, "admin", INITIAL_PASSWORD)
+    rotate_password(admin, INITIAL_PASSWORD, UPDATED_ADMIN_PASSWORD)
+    page = admin.get("/admin/users")
+    response = admin.post(
+        "/admin/users",
+        data={
+            "csrf_token": csrf_token(page),
+            "username": "guest-viewer",
+            "password": "temporary-guest-password",
+            "role": "guest",
+        },
+    )
+    assert response.status_code == 302
+    guest_id = user_id(app, "guest-viewer")
+    page = admin.get("/admin/users")
+    admin.post(
+        f"/admin/users/{guest_id}/role",
+        data={"csrf_token": csrf_token(page), "role": "user"},
+    )
+    page = admin.get("/admin/users")
+    role_update = admin.post(
+        f"/admin/users/{guest_id}/role",
+        data={"csrf_token": csrf_token(page), "role": "guest"},
+    )
+    assert role_update.status_code == 302
+    guest = app.test_client()
+    assert login(guest, "guest-viewer", "temporary-guest-password").location.endswith(
+        "/change-password"
+    )
+    rotate_password(guest, "temporary-guest-password", "permanent-guest-password")
+    assert guest.get("/").status_code == 200
+    assert guest.get("/admin/users").status_code == 403
+
+
 def test_admin_management_requires_csrf_and_preserves_last_admin(tmp_path):
     app = make_app(tmp_path)
     client = app.test_client()
