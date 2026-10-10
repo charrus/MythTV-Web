@@ -83,7 +83,7 @@ pytest
 For local development:
 
 ```sh
-flask --app 'mythtv_web:create_app' run --host 0.0.0.0 --port 6555
+uv run mythtv-web
 ```
 
 For the Apache-facing server process:

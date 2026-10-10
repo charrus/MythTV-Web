@@ -2,6 +2,19 @@
 line-length = 88
 target-version = ["py310"]
 
+[project.scripts]
+mythtv-web = "mythtv_web.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["mythtv_web*"]
+
+[tool.setuptools.package-data]
+mythtv_web = ["templates/*", "static/*", "static/**/*"]
+
 [tool.ruff]
 line-length = 88
 target-version = "py310"
