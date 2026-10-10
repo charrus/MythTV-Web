@@ -20,8 +20,12 @@ def authenticated_api_clients(monkeypatch, tmp_path):
         client = original_test_client(app, *args, **kwargs)
         with sqlite3.connect(app.config["AUTH_DATABASE_PATH"]) as connection:
             connection.execute("UPDATE users SET must_change_password = 0 WHERE id = 1")
+            token = connection.execute(
+                "SELECT session_token FROM users WHERE id = 1"
+            ).fetchone()[0]
         with client.session_transaction() as user_session:
             user_session["user_id"] = 1
+            user_session["session_token"] = token
         return client
 
     monkeypatch.setattr(Flask, "test_client", test_client)

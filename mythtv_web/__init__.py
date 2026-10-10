@@ -375,6 +375,7 @@ def create_app(config: dict | None = None) -> Flask:
             "MYTHTV_INITIAL_ADMIN_PASSWORD", "mythtv-admin"
         ),
         SECRET_KEY=os.environ.get("MYTHTV_SECRET_KEY"),
+        SESSION_COOKIE_SAMESITE="Strict",
         SESSION_COOKIE_SECURE=os.environ.get("MYTHTV_SESSION_COOKIE_SECURE", "0")
         in {"1", "true", "yes"},
     )
