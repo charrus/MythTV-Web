@@ -888,6 +888,10 @@ def test_cheap_seats_playback_normalizes_mythtv_markers_and_resume_positions(
     ]
     requests_made = []
     monkeypatch.setattr(
+        "mythtv_web.shutil.which",
+        lambda program: "/usr/bin/ffprobe" if program == "ffprobe" else None,
+    )
+    monkeypatch.setattr(
         "mythtv_web.subprocess.run",
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args[0],
