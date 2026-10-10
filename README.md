@@ -10,7 +10,7 @@ This started out as a fun project to play with AI and is not meant to replace th
 
 ## Quick start
 
-Install uv and Node.js 20 or newer, then run these commands from the project directory:
+Install [uv using its official installation guide](https://docs.astral.sh/uv/getting-started/installation/) and Node.js 20 or newer, then run these commands from the project directory:
 
 ```sh
 npm ci
