@@ -4,7 +4,6 @@ import math
 import os
 import re
 import shutil
-import signal
 import subprocess
 import time
 from datetime import datetime, timedelta, timezone
@@ -17,6 +16,7 @@ import requests
 from flask import (
     Flask,
     Response,
+    g,
     jsonify,
     render_template,
     request,
@@ -26,6 +26,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .auth import deletion_allowed, init_auth
 from .backend import cuttings, json_object, program_list
+from .transcodes import CapacityError, TokenActiveError, TranscodeRegistry
 
 DEFAULT_BACKEND_URL = "http://127.0.0.1:6544"
 PRIMARY_RECORDING_GROUP = "Seasons"
@@ -366,6 +367,12 @@ def create_app(config: dict | None = None) -> Flask:
     app.config["MYTHTV_TRANSCODE_DIR"] = str(
         Path(__file__).resolve().parents[1] / ".run" / "transcodes"
     )
+    app.config["MYTHTV_MAX_TRANSCODES"] = int(
+        os.environ.get("MYTHTV_MAX_TRANSCODES", "2")
+    )
+    app.config["MYTHTV_FFMPEG_THREADS"] = int(
+        os.environ.get("MYTHTV_FFMPEG_THREADS", "2")
+    )
     app.config.update(
         AUTH_DATABASE_PATH=os.environ.get(
             "MYTHTV_AUTH_DATABASE",
@@ -386,6 +393,9 @@ def create_app(config: dict | None = None) -> Flask:
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=session_lifetime_days)
     if config:
         app.config.update(config)
+    for key in ("MYTHTV_MAX_TRANSCODES", "MYTHTV_FFMPEG_THREADS"):
+        if type(app.config[key]) is not int or app.config[key] < 1:
+            raise ValueError(f"{key} must be a positive integer")
     init_auth(app)
 
     @app.get("/")
@@ -1226,17 +1236,16 @@ def create_app(config: dict | None = None) -> Flask:
             return jsonify(error="Invalid playback start position"), 400
         if not re.fullmatch(r"[a-f0-9]{32}", token):
             return jsonify(error="A valid transcode token is required"), 400
-        transcode_dir = Path(app.config["MYTHTV_TRANSCODE_DIR"])
-        transcode_dir.mkdir(parents=True, exist_ok=True)
-        process_path = transcode_dir / f"{token}.pid"
-        if process_path.exists():
-            return jsonify(error="Transcode token is already active"), 409
-
+        threads = str(app.config["MYTHTV_FFMPEG_THREADS"])
         command = [
             ffmpeg,
             "-hide_banner",
             "-loglevel",
             "error",
+            "-threads",
+            threads,
+            "-filter_threads",
+            threads,
             "-ss",
             str(start),
             "-i",
@@ -1247,6 +1256,8 @@ def create_app(config: dict | None = None) -> Flask:
             "0:a:0?",
             "-c:v",
             "libx264",
+            "-threads:v",
+            threads,
             "-preset",
             "veryfast",
             "-crf",
@@ -1255,6 +1266,8 @@ def create_app(config: dict | None = None) -> Flask:
             "yuv420p",
             "-c:a",
             "aac",
+            "-threads:a",
+            threads,
             "-b:a",
             "160k",
             "-movflags",
@@ -1263,35 +1276,36 @@ def create_app(config: dict | None = None) -> Flask:
             "mp4",
             "pipe:1",
         ]
+        registry = TranscodeRegistry(
+            app.config["MYTHTV_TRANSCODE_DIR"], app.config["MYTHTV_MAX_TRANSCODES"]
+        )
         try:
-            process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+            job = registry.start(command, token, recorded_id, g.current_user)
+        except TokenActiveError:
+            return jsonify(error="Transcode token is already active"), 409
+        except CapacityError:
+            return (
+                jsonify(error="All transcode slots are busy. Try again shortly."),
+                503,
             )
         except OSError as error:
             app.logger.warning("Could not start FFmpeg: %s", error)
             return jsonify(error="Could not start FFmpeg"), 502
-        process_path.write_text(str(process.pid))
 
         def generate():
             try:
-                while chunk := process.stdout.read1(64 * 1024):
+                while chunk := job.process.stdout.read1(64 * 1024):
                     yield chunk
             finally:
-                process.terminate()
-                try:
-                    process.wait(timeout=3)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
-                process_path.unlink(missing_ok=True)
+                job.close()
 
-        return Response(
+        response = Response(
             stream_with_context(generate()),
             content_type="video/mp4",
             headers={"Cache-Control": "no-store"},
         )
+        response.call_on_close(job.close)
+        return response
 
     @app.post("/api/playback/<int:recorded_id>/transcode/cancel")
     def cancel_playback_transcode(recorded_id):
@@ -1299,15 +1313,14 @@ def create_app(config: dict | None = None) -> Flask:
         token = payload.get("token") if isinstance(payload, dict) else None
         if not isinstance(token, str) or not re.fullmatch(r"[a-f0-9]{32}", token):
             return jsonify(error="A valid transcode token is required"), 400
-        process_path = Path(app.config["MYTHTV_TRANSCODE_DIR"]) / f"{token}.pid"
+        registry = TranscodeRegistry(
+            app.config["MYTHTV_TRANSCODE_DIR"], app.config["MYTHTV_MAX_TRANSCODES"]
+        )
         try:
-            process_id = int(process_path.read_text())
-            os.kill(process_id, signal.SIGTERM)
-        except FileNotFoundError:
+            cancelled = registry.cancel(token, recorded_id, g.current_user)
+        except (OSError, AttributeError):
             return jsonify(cancelled=False), 404
-        except (OSError, ValueError):
-            return jsonify(cancelled=False), 404
-        return jsonify(cancelled=True)
+        return jsonify(cancelled=cancelled), 200 if cancelled else 404
 
     @app.get("/api/playback/<int:recorded_id>/subtitles/<int:stream_index>")
     def playback_subtitles(recorded_id, stream_index):

@@ -1,4 +1,5 @@
 import json
+import os
 import signal
 import sqlite3
 import subprocess
@@ -1271,17 +1272,33 @@ def test_transcode_cancel_terminates_only_a_tokenized_process(monkeypatch, tmp_p
     token = "a" * 32
     transcode_dir = tmp_path / "transcodes"
     transcode_dir.mkdir()
-    (transcode_dir / f"{token}.pid").write_text("4321")
     captured = {}
 
-    def fake_kill(process_id, process_signal):
-        captured["process_id"] = process_id
+    def fake_signal(descriptor, process_signal):
+        captured["descriptor"] = descriptor
         captured["signal"] = process_signal
 
-    monkeypatch.setattr("mythtv_web.os.kill", fake_kill)
+    identity = {"start": "123", "boot": "boot", "executable": "/usr/bin/ffmpeg"}
+    monkeypatch.setattr("mythtv_web.transcodes._process_identity", lambda _: identity)
+    descriptor = os.open("/dev/null", os.O_RDONLY)
+    monkeypatch.setattr("mythtv_web.transcodes.os.pidfd_open", lambda _: descriptor)
+    monkeypatch.setattr("mythtv_web.transcodes.signal.pidfd_send_signal", fake_signal)
     app = create_app()
     app.config["MYTHTV_TRANSCODE_DIR"] = str(transcode_dir)
     client = app.test_client()
+    with client.session_transaction() as saved:
+        owner_token = saved["session_token"]
+    (transcode_dir / f"{token}.json").write_text(
+        json.dumps(
+            {
+                "pid": 4321,
+                "identity": identity,
+                "recorded_id": 42,
+                "user_id": 1,
+                "session_token": owner_token,
+            }
+        )
+    )
 
     response = client.post("/api/playback/42/transcode/cancel", json={"token": token})
     invalid_response = client.post(
@@ -1290,7 +1307,7 @@ def test_transcode_cancel_terminates_only_a_tokenized_process(monkeypatch, tmp_p
 
     assert response.status_code == 200
     assert response.json == {"cancelled": True}
-    assert captured == {"process_id": 4321, "signal": signal.SIGTERM}
+    assert captured == {"descriptor": descriptor, "signal": signal.SIGTERM}
     assert invalid_response.status_code == 400
 
 
@@ -1312,6 +1329,9 @@ def test_transcode_stream_removes_process_registration_after_completion(
 
         def read1(self, _size):
             return self.chunks.pop(0)
+
+        def close(self):
+            pass
 
     class Process:
         pid = 9876
@@ -1335,6 +1355,9 @@ def test_transcode_stream_removes_process_registration_after_completion(
 
     monkeypatch.setattr("mythtv_web.shutil.which", lambda _: "/usr/bin/ffmpeg")
     monkeypatch.setattr("mythtv_web.subprocess.Popen", fake_popen)
+    monkeypatch.setattr(
+        "mythtv_web.transcodes._process_identity", lambda _: {"start": "123"}
+    )
     app = create_app()
     app.config["MYTHTV_RECORDINGS_CACHE_PATH"] = str(cache_path)
     app.config["MYTHTV_TRANSCODE_DIR"] = str(tmp_path / "transcodes")
@@ -1342,11 +1365,12 @@ def test_transcode_stream_removes_process_registration_after_completion(
     response = app.test_client().get(
         f"/api/playback/42/transcode?start=123.5&token={token}", buffered=False
     )
-    process_path = tmp_path / "transcodes" / f"{token}.pid"
+    process_path = tmp_path / "transcodes" / f"{token}.json"
 
     assert response.status_code == 200
     assert commands[0][commands[0].index("-ss") + 1] == "123.5"
-    assert process_path.read_text() == "9876"
+    assert json.loads(process_path.read_text())["pid"] == 9876
+    assert commands[0][commands[0].index("-threads:v") + 1] == "2"
     assert b"".join(response.response) == b"fragment"
     assert process.terminated
     assert not process_path.exists()
