@@ -1332,6 +1332,13 @@ input {
   font-size: 13px;
 }
 
+.users-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
 .back-button:hover {
   border-color: var(--accent);
   background: #344d64;

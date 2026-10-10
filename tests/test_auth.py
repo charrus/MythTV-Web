@@ -92,6 +92,19 @@ def test_initial_admin_must_change_password_and_anonymous_routes_are_restricted(
     assert client.get("/admin/users").status_code == 200
 
 
+def test_users_page_has_back_to_library_link(tmp_path):
+    app = make_app(tmp_path)
+    client = app.test_client()
+    login(client, "admin", INITIAL_PASSWORD)
+    rotate_password(client, INITIAL_PASSWORD, UPDATED_ADMIN_PASSWORD)
+
+    response = client.get("/admin/users")
+
+    assert response.status_code == 200
+    assert b'class="back-button users-back-link" href="/"' in response.data
+    assert b"Back to library" in response.data
+
+
 def test_admin_manages_accounts_and_regular_users_cannot_manage_users(tmp_path):
     app = make_app(tmp_path)
     admin = app.test_client()
