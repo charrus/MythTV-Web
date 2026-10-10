@@ -78,7 +78,7 @@ Before enabling the feature, make its selection capability-based, confirm the bu
 Run these checks before committing changes:
 
 ```sh
-uv run --locked black --check .
+uv run --locked ruff format --check .
 uv run --locked ruff check .
 uv run --locked pytest
 npm run test:browser
