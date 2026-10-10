@@ -44,5 +44,5 @@ jobs:
       - name: Run Ruff
         run: uv run --locked ruff check .
 
-      - name: Check formatting with Black
-        run: uv run --locked black --check .
+      - name: Check formatting with Ruff
+        run: uv run --locked ruff format --check .
