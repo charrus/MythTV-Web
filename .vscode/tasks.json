@@ -5,7 +5,7 @@
             "label": "uv: sync dependencies",
             "type": "process",
             "command": "uv",
-            "args": ["sync", "--locked", "--dev"],
+            "args": ["sync", "--dev"],
             "options": {
                 "cwd": "${workspaceFolder}"
             },
@@ -15,7 +15,7 @@
             "label": "uv: run app",
             "type": "process",
             "command": "uv",
-            "args": ["run", "--locked", "mythtv-web"],
+            "args": ["run", "mythtv-web"],
             "options": {
                 "cwd": "${workspaceFolder}"
             },
