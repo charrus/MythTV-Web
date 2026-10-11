@@ -183,3 +183,4 @@ The trailing slash on `proxy_pass` removes `/mythtv-web/` before forwarding the 
 sudo nginx -t
 sudo systemctl reload nginx
 ```
+
