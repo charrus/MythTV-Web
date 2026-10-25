@@ -241,9 +241,25 @@ def _probe_video(app: Flask, video_id: int) -> dict:
 
 
 def _start_transcode(
-    app: Flask, ffmpeg: str, source_url: str, start: str, token: str, resource_id: int
+    app: Flask,
+    ffmpeg: str,
+    source_url: str,
+    start: str,
+    token: str,
+    resource_id: int,
+    subtitle_index: int | None = None,
 ):
     threads = str(app.config["MYTHTV_FFMPEG_THREADS"])
+    video_options = ["-map", "0:v:0?"]
+    if subtitle_index is not None:
+        video_options = [
+            "-filter_complex_threads",
+            threads,
+            "-filter_complex",
+            f"[0:v:0][0:{subtitle_index}]overlay=eof_action=pass[v]",
+            "-map",
+            "[v]",
+        ]
     command = [
         ffmpeg,
         "-hide_banner",
@@ -261,8 +277,7 @@ def _start_transcode(
         "2",
         "-i",
         source_url,
-        "-map",
-        "0:v:0?",
+        *video_options,
         "-map",
         "0:a:0?",
         "-c:v",
@@ -1728,8 +1743,27 @@ def create_app(config: dict | None = None) -> Flask:
             return jsonify(error="Invalid playback start position"), 400
         if not re.fullmatch(r"[a-f0-9]{32}", token):
             return jsonify(error="A valid transcode token is required"), 400
+        subtitle = request.args.get("subtitle")
+        subtitle_index = None
+        if subtitle is not None:
+            if len(subtitle) > 10 or not subtitle.isascii() or not subtitle.isdecimal():
+                return jsonify(error="Invalid subtitle track"), 400
+            subtitle_index = int(subtitle)
+            tracks = _probe_recording(app, recorded_id)["subtitles"]
+            if not any(
+                track["index"] == subtitle_index
+                and track.get("codec") == "dvb_subtitle"
+                for track in tracks
+            ):
+                return jsonify(error="DVB subtitle track not found"), 404
         return _start_transcode(
-            app, ffmpeg, _recording_url(app, recorded_id), start, token, recorded_id
+            app,
+            ffmpeg,
+            _recording_url(app, recorded_id),
+            start,
+            token,
+            recorded_id,
+            subtitle_index=subtitle_index,
         )
 
     @app.post("/api/playback/<int:recorded_id>/transcode/cancel")

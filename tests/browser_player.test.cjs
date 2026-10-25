@@ -120,6 +120,25 @@ async function settle() {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
+test("DVB subtitles restart server playback and Off removes the overlay", async () => {
+  const h = harness();
+  const opening = h.context.openPlayer(program(42));
+  const metadata = info(42);
+  metadata.media.subtitles = [{ index: 3, codec: "dvb_subtitle", language: "eng" }];
+  respond(h.requests.find((r) => r.url === "/api/playback/42"), metadata);
+  await settle();
+  h.video.dispatchEvent(new Event("loadedmetadata"));
+  await opening;
+  h.video.currentTime = 80;
+  h.element("#subtitle-track").value = "3";
+  await h.context.selectSubtitle("3");
+  assert.match(h.video.src, /start=80&token=[a-f0-9]{32}&subtitle=3$/);
+  h.video.currentTime = 10;
+  h.element("#subtitle-track").value = "";
+  await h.context.selectSubtitle("");
+  assert.match(h.video.src, /start=90&token=[a-f0-9]{32}$/);
+  h.context.closePlayer();
+});
 test("closing during metadata fetch ignores a late response without saving zero", async () => {
   const h = harness();
   const opening = h.context.openPlayer(program(42));

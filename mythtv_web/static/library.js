@@ -56,6 +56,7 @@ let transcodeBase = 0;
 let transcodeToken = null;
 let wasmPlayback = null;
 let subtitleElement = null;
+let burnedSubtitle = null;
 let lastSavedPosition = -1;
 let requestedStartPosition = 0;
 let smartSkipBusy = false;
@@ -362,10 +363,16 @@ function startTranscode(seconds = 0) {
     playerVideo.playbackRate = playbackRate;
     if ("preservesPitch" in playerVideo) playerVideo.preservesPitch = true;
   });
+  const selectedSubtitle = document.querySelector("#subtitle-track").value;
+  const dvbTrack = (activeRecording ? playbackInfo?.media.subtitles : [])?.find(
+    (track) => String(track.index) === selectedSubtitle && track.codec === "dvb_subtitle",
+  );
+  burnedSubtitle = dvbTrack ? String(dvbTrack.index) : null;
+  const subtitleQuery = burnedSubtitle === null ? "" : `&subtitle=${burnedSubtitle}`;
   const transcodePath = activeVideo
     ? `/api/videos/${activeVideo.Id}/transcode`
     : `/api/playback/${activeRecording.Recording.RecordedId}/transcode`;
-  playerVideo.src = appPath(`${transcodePath}?start=${encodeURIComponent(seconds)}&token=${transcodeToken}`);
+  playerVideo.src = appPath(`${transcodePath}?start=${encodeURIComponent(seconds)}&token=${transcodeToken}${subtitleQuery}`);
   playerVideo.load();
   if (subtitleElement) {
     selectSubtitle(document.querySelector("#subtitle-track").value);
@@ -402,14 +409,20 @@ function handleVideoError() {
 async function selectSubtitle(streamIndex) {
   subtitleElement?.remove();
   subtitleElement = null;
-  if (streamIndex === "" || (!activeRecording && !activeVideo)) return;
+  if (!activeRecording && !activeVideo) return;
   const tracks = activeVideo
     ? videoPlaybackInfo?.subtitles || []
     : playbackInfo?.media.subtitles || [];
   const trackInfo = tracks.find(
     (track) => Number.isSafeInteger(track.index) && String(track.index) === streamIndex,
   );
-  if (!trackInfo) return;
+  if (activeRecording && (trackInfo?.codec === "dvb_subtitle" || burnedSubtitle !== null)) {
+    const desiredSubtitle = trackInfo?.codec === "dvb_subtitle" ? String(trackInfo.index) : null;
+    if (desiredSubtitle !== burnedSubtitle) {
+      startTranscode(Math.max(playbackPosition(), requestedStartPosition));
+    }
+  }
+  if (!trackInfo || trackInfo.codec === "dvb_subtitle") return;
   const resourceId = activeVideo
     ? activeVideo.Id
     : activeRecording.Recording.RecordedId;
@@ -531,6 +544,7 @@ async function openPlayer(program, startMode = "resume") {
   usingTranscode = false;
   usingWasm = false;
   transcodeBase = 0;
+  burnedSubtitle = null;
   stopWasmPlayback();
   lastSavedPosition = -1;
   requestedStartPosition = 0;
@@ -757,6 +771,7 @@ function closePlayer() {
   usingTranscode = false;
   usingWasm = false;
   transcodeBase = 0;
+  burnedSubtitle = null;
   requestedStartPosition = 0;
   if (playerDialog.open) playerDialog.close();
   playerVideo.controls = false;
